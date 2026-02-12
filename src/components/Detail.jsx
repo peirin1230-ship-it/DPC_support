@@ -2,8 +2,11 @@ import { useState } from "react";
 import { D } from "../data";
 import { M } from "../styles";
 import { calcTotal, cleanName, getSubdiagICDs } from "../utils";
+import SimChart from "./SimChart";
+import SimilarCls from "./SimilarCls";
 
-export default function Detail({r,onClose,sd}){
+export default function Detail({r,onClose,sd,onSearchCls}){
+  const[showChart,setShowChart]=useState(false);
   if(!r)return null;
   const cls=r.cls;const icds=D.icd[cls]||[];const si=D.si[cls]||{};const p1e=D.p1[cls]||{};const p2e=D.p2[cls]||{};
   const tot=calcTotal(r.days,r.points,sd);const svDef=D.sv?.[cls];
@@ -39,6 +42,7 @@ export default function Detail({r,onClose,sd}){
               <div style={{color:"#64748b",fontSize:12}}>{sd}日入院の総点数{tot.overDays>0?<span style={{color:"#ef4444"}}> （うち{tot.overDays}日は出来高）</span>:""}</div>
               <div style={{fontFamily:M,fontWeight:800,color:"#f59e0b",fontSize:28}}>{tot.total.toLocaleString()}<span style={{fontSize:13,color:"#64748b",fontWeight:400}}>点</span></div>
             </div>)}
+            <button onClick={()=>setShowChart(true)} style={{width:"100%",marginTop:8,padding:"8px 0",background:"#1e293b",border:"1px solid #334155",borderRadius:6,color:"#38bdf8",cursor:"pointer",fontSize:13,fontWeight:600}}>点数推移グラフ</button>
           </div>
         ):(
           <div style={{padding:"16px 20px",borderBottom:"1px solid #1e293b"}}>
@@ -107,8 +111,10 @@ export default function Detail({r,onClose,sd}){
               {Object.entries(p2e).sort((a,b)=>parseInt(b[0]||0)-parseInt(a[0]||0)).map(([corr,codes],i)=>(<div key={i} style={{color:"#cbd5e1",marginBottom:3,fontSize:12}}><span style={{fontFamily:M,color:corr===r.p2Val?"#f59e0b":"#38bdf8",fontWeight:corr===r.p2Val?700:400,fontSize:11}}>[{corr}]</span>{" "}{codes.slice(0,3).map(c=>{const n=D.cn[c]||"";const a=D.da?.[c];const d=a?.length?`${n}(${a[0]})`:n;return`${c}(${d.slice(0,20)})`;}).join(", ")}</div>))}
             </Sec>
           )}
+          <SimilarCls cls={cls} onSearch={onSearchCls}/>
         </div>
       </div>
+      {showChart&&<SimChart r={r} sd={sd} onClose={()=>setShowChart(false)}/>}
     </div>
   );
 }

@@ -1,12 +1,14 @@
 import { useState, useMemo } from "react";
 import { D } from "../data";
 import { F, M } from "../styles";
-import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs } from "../utils";
+import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, findCls } from "../utils";
+import { addHistory, getFavorites, addFavorite, removeFavorite } from "../storage";
 import AC from "./AC";
 import IcdPanel from "./IcdPanel";
 import CompareModal from "./CompareModal";
 import Detail from "./Detail";
 import DrillDown from "./DrillDown";
+import HistoryPanel from "./HistoryPanel";
 
 export default function DPCTool(){
   const[icdIn,setIcdIn]=useState("");const[selIcd,setSelIcd]=useState("");
@@ -23,6 +25,8 @@ export default function DPCTool(){
   const[expandedDPCs,setExpandedDPCs]=useState([]);
   const[drillP1,setDrillP1]=useState(null);const[drillP2,setDrillP2]=useState(null);
   const[mdcFilter,setMdcFilter]=useState("");
+  const[showHistory,setShowHistory]=useState(false);
+  const[favSet,setFavSet]=useState(()=>new Set(getFavorites().map(f=>f.code)));
 
   const doSearch=()=>{
     const icd=selIcd||icdIn.trim();const p={};
@@ -37,6 +41,11 @@ export default function DPCTool(){
     setResults(r);setSearched(true);
     setExpandedDPCs(getExpandedResults(r));
     setDrillP1(null);setDrillP2(null);
+    const parts=[];
+    if(icd)parts.push(icd);if(selSurg)parts.push(selSurg);if(selProc)parts.push(selProc);if(selDrug)parts.push(selDrug);
+    addHistory({key:parts.join("|"),icd:icdIn.trim()||"",surg:surgIn.trim()||"",proc:procIn.trim()||"",drug:drugIn.trim()||"",
+      selIcd:icd,selSurg:selSurg||"",selProc:selProc||"",selDrug:selDrug||"",
+      count:r.length,label:parts.join(" + ")});
   };
   const doReset=()=>{
     setIcdIn("");setSelIcd("");setSurgIn("");setSelSurg("");
@@ -45,6 +54,26 @@ export default function DPCTool(){
     setExpandedDPCs([]);setDrillP1(null);setDrillP2(null);setMdcFilter("");
   };
   const toggleCmp=r=>{setCmpList(p=>{if(p.find(x=>x.code===r.code))return p.filter(x=>x.code!==r.code);if(p.length>=4)return p;return[...p,r];});};
+  const toggleFav=r=>{
+    if(favSet.has(r.code)){removeFavorite(r.code);setFavSet(s=>{const n=new Set(s);n.delete(r.code);return n;});}
+    else{addFavorite(r.code,r.clsName,r.surgeryName);setFavSet(s=>new Set(s).add(r.code));}
+  };
+  const restoreSearch=h=>{
+    setIcdIn(h.icd||"");setSelIcd(h.selIcd||"");
+    setSurgIn(h.surg||"");setSelSurg(h.selSurg||"");
+    setProcIn(h.proc||"");setSelProc(h.selProc||"");
+    setDrugIn(h.drug||"");setSelDrug(h.selDrug||"");
+    setTimeout(()=>{
+      const p={};if(h.selIcd)p.icdCode=h.selIcd;if(h.selSurg)p.surgeryCode=h.selSurg;
+      if(h.selProc)p.procAnyCode=h.selProc;if(h.selDrug)p.drugCode=h.selDrug;
+      if(!p.icdCode&&!p.surgeryCode&&!p.procAnyCode&&!p.drugCode)return;
+      const r=searchDPC(p);setResults(r);setSearched(true);
+      setExpandedDPCs(getExpandedResults(r));setDrillP1(null);setDrillP2(null);
+    },0);
+  };
+  const jumpToCode=code=>{
+    const r=buildResultFromCode(code);if(!r)return;setDetail(r);
+  };
 
   const{displayed:displayedResults,options:branchOptions,total:totalCount}=useMemo(()=>{
     const fe=mdcFilter?expandedDPCs.filter(r=>r.cls.slice(0,2)===mdcFilter):expandedDPCs;
@@ -110,6 +139,15 @@ export default function DPCTool(){
           </div>
           <button onClick={doSearch} style={{padding:"8px 22px",background:"linear-gradient(135deg,#38bdf8,#0ea5e9)",border:"none",borderRadius:6,color:"#fff",fontWeight:700,cursor:"pointer",fontSize:14}}>検索</button>
           <button onClick={doReset} style={{padding:"8px 14px",background:"#1e293b",border:"none",borderRadius:6,color:"#94a3b8",cursor:"pointer",fontSize:13}}>クリア</button>
+          <div style={{position:"relative"}}>
+            <button onClick={()=>setShowHistory(v=>!v)} style={{padding:"8px 14px",background:"#1e293b",border:"none",borderRadius:6,color:"#a78bfa",cursor:"pointer",fontSize:13}}>履歴</button>
+            {showHistory&&<HistoryPanel onClose={()=>setShowHistory(false)} onRestoreSearch={restoreSearch} onJumpToCode={jumpToCode}
+              cmpSet={new Set(cmpList.map(x=>x.code))}
+              onAddToCompare={code=>{
+                const r=buildResultFromCode(code);if(!r)return;
+                setCmpList(p=>{if(p.find(x=>x.code===code))return p.filter(x=>x.code!==code);if(p.length>=4)return p;return[...p,r];});
+              }}/>}
+          </div>
           {results.length>0&&<button onClick={()=>setShowIcd(true)} style={{padding:"8px 14px",background:"#1e293b",border:"none",borderRadius:6,color:"#8ab4f8",cursor:"pointer",fontSize:13}}>ICD-10一覧</button>}
           {searched&&<span style={{fontSize:13,color:"#64748b"}}>{displayedResults.length>0?`${displayedResults.length}件`:"一致なし"}{(drillP1||drillP2)&&totalCount!==displayedResults.length?` (全${totalCount}件中)`:""}</span>}
           {sortMode==="total"&&!sd&&searched&&displayedResults.length>0&&<span style={{fontSize:11,color:"#ef4444"}}>※入院日数を入力すると総点数でソート</span>}
@@ -141,6 +179,7 @@ export default function DPCTool(){
               return(
                 <div key={r.code} style={{background:r.isDekidaka?"#1a0f1f":"#111827",borderRadius:8,border:chk?"2px solid #f59e0b":r.isDekidaka?"1px solid #2d1b3d":"1px solid #1e293b",padding:"10px 12px"}}>
                   <div style={{display:"flex",alignItems:"center",gap:8}}>
+                    <span onClick={e=>{e.stopPropagation();toggleFav(r);}} style={{cursor:"pointer",fontSize:16,flexShrink:0,color:favSet.has(r.code)?"#f59e0b":"#334155",lineHeight:1}} title="お気に入り">{favSet.has(r.code)?"★":"☆"}</span>
                     <input type="checkbox" checked={chk} onChange={()=>toggleCmp(r)} style={{cursor:"pointer",accentColor:"#f59e0b",width:15,height:15,flexShrink:0}} />
                     <div style={{flex:1,minWidth:0}}>
                       <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
@@ -214,7 +253,19 @@ export default function DPCTool(){
       )}
 
       {showCmp&&<CompareModal items={cmpList} onClose={()=>setShowCmp(false)} sd={sd}/>}
-      {detail&&<Detail r={detail} onClose={()=>setDetail(null)} sd={sd}/>}
+      {detail&&<Detail r={detail} onClose={()=>setDetail(null)} sd={sd} onSearchCls={targetCls=>{
+        const icds=D.icd[targetCls];if(!icds||!icds.length)return;
+        const icd=icds[0];
+        setIcdIn(`${icd} ${D.icn[icd]||""}`);setSelIcd(icd);
+        setSurgIn("");setSelSurg("");setProcIn("");setSelProc("");setDrugIn("");setSelDrug("");
+        setDetail(null);
+        setTimeout(()=>{
+          const r2=searchDPC({icdCode:icd});setResults(r2);setSearched(true);
+          setExpandedDPCs(getExpandedResults(r2));setDrillP1(null);setDrillP2(null);
+          addHistory({key:icd,icd:`${icd} ${D.icn[icd]||""}`,surg:"",proc:"",drug:"",
+            selIcd:icd,selSurg:"",selProc:"",selDrug:"",count:r2.length,label:icd});
+        },0);
+      }}/>}
       {showIcd&&<IcdPanel results={results} onClose={()=>setShowIcd(false)}/>}
     </div>
   );

@@ -196,3 +196,42 @@ export function getBranchOptions(expandedDPCs,drillP1,drillP2){
 }
 
 export function searchDrug(q){if(!q||q.length<1)return[];const qn=normalize(q);const r=[],seen=new Set();for(const grp of Object.values(D.p2)){for(const codes of Object.values(grp)){for(const c of codes){if(seen.has(c)||!/^\d{4}$/.test(c))continue;const n=D.cn[c]||"";const al=D.da?.[c]||[];let m=normalize(n).includes(qn)||c.includes(qn);let ma="";if(!m){for(const a of al){if(normalize(a).includes(qn)){m=true;ma=a;break;}}}if(m){const dn=ma?`${n}（${ma}）`:(al.length>0?`${n}（${al[0]}）`:n);r.push({code:c,name:dn});seen.add(c);if(r.length>=20)return r;}}}}return r;}
+
+export function getSimilarClassifications(cls){
+  const mdc=cls.slice(0,2);const results=[];
+  // 同一MDC（先頭2桁が同じ）の分類を収集
+  for(const[c,name]of Object.entries(D.cls)){
+    if(c.slice(0,2)!==mdc||c===cls)continue;
+    let dpcCount=0,surgSet=new Set(),minP1=Infinity,maxP1=0,maxD3=0;
+    for(const[,info]of Object.entries(D.dpc)){
+      if(info[0]+info[1]!==c)continue;
+      dpcCount++;surgSet.add(info[3]);
+      const pt=info[10]||0;if(pt>0){if(pt<minP1)minP1=pt;if(pt>maxP1)maxP1=pt;}
+      const d3v=info[9]||0;if(d3v>maxD3)maxD3=d3v;
+    }
+    if(dpcCount===0)continue;
+    results.push({cls:c,name,dpcCount,surgCount:surgSet.size,
+      minP1:minP1===Infinity?0:minP1,maxP1,maxD3});
+  }
+  // 分類コードの数値的近さでソート
+  const num=s=>parseInt(s,10)||0;
+  results.sort((a,b)=>Math.abs(num(a.cls)-num(cls))-Math.abs(num(b.cls)-num(cls)));
+  return results;
+}
+
+export function buildResultFromCode(code){
+  const info=D.dpc[code];if(!info)return null;
+  const cls=info[0]+info[1];const sv=info[3];
+  const dk=info[2]==="0"||info[2]===0;
+  return{
+    code,cls,clsName:D.cls[cls]||"",
+    surgeryName:getLabel(cls,"o",sv),
+    proc1Name:hasBranch(cls,sv,"1")?getLabel(cls,"1",info[4]):"-",
+    proc2Name:hasBranch(cls,sv,"2")?getLabel(cls,"2",info[5]):"-",
+    subdiagName:hasBranch(cls,sv,"s")?getLabel(cls,"s",info[6]):"-",
+    surgVal:sv,p1Val:info[4],p2Val:info[5],sdVal:info[6],
+    hasP1Branch:hasBranch(cls,sv,"1"),hasP2Branch:hasBranch(cls,sv,"2"),
+    severity:getSevInfo(cls,code),condLabel:getCondLabel(cls,code),
+    days:[info[7],info[8],info[9]],points:[info[10],info[11],info[12]],isDekidaka:dk
+  };
+}
