@@ -1,12 +1,13 @@
 import { useState } from "react";
 import { D } from "../data";
 import { M } from "../styles";
-import { calcTotal, cleanName } from "../utils";
+import { calcTotal, cleanName, getSubdiagICDs } from "../utils";
 
 export default function Detail({r,onClose,sd}){
   if(!r)return null;
   const cls=r.cls;const icds=D.icd[cls]||[];const si=D.si[cls]||{};const p1e=D.p1[cls]||{};const p2e=D.p2[cls]||{};
   const tot=calcTotal(r.days,r.points,sd);const svDef=D.sv?.[cls];
+  const validSv=new Set();for(const info of Object.values(D.dpc)){if(info[0]+info[1]===cls)validSv.add(info[3]);}
   const Row=({l,v,c})=>(<div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #1e293b"}}><span style={{color:"#64748b",fontSize:14}}>{l}</span><span style={{color:c||"#e2e8f0",fontSize:14,fontWeight:500,textAlign:"right",maxWidth:"60%"}}>{v}</span></div>);
   const Sec=({title,children})=>{const[o,setO]=useState(false);return(<div style={{marginTop:8}}><button onClick={()=>setO(!o)} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:"#94a3b8",cursor:"pointer",fontSize:13,fontWeight:600,padding:0}}><span style={{transform:o?"rotate(90deg)":"none",transition:"transform .15s",display:"inline-block"}}>▸</span>{title}</button>{o&&<div style={{marginTop:6,background:"#0a0f1a",borderRadius:6,padding:8,maxHeight:180,overflow:"auto"}}>{children}</div>}</div>);};
   return(
@@ -52,6 +53,20 @@ export default function Detail({r,onClose,sd}){
           <Row l="手術・処置等１" v={r.proc1Name} />
           <Row l="手術・処置等２" v={r.proc2Name} />
           <Row l="定義副傷病" v={r.subdiagName} />
+          {r.subdiagName&&r.subdiagName!=="なし"&&r.subdiagName!=="-"&&(()=>{
+            const sdICDs=getSubdiagICDs(r.cls,r.sdVal);
+            return sdICDs.length>0?(
+              <div style={{background:"#0a0f1a",borderRadius:6,padding:8,marginBottom:4,maxHeight:120,overflowY:"auto"}}>
+                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>副傷病 対象ICD（{sdICDs.length}件）</div>
+                {sdICDs.map((ic,i)=>(
+                  <div key={i} style={{fontSize:12,color:"#94a3b8",padding:"1px 0",display:"flex",gap:6}}>
+                    <span style={{color:"#f97316",fontFamily:M,flexShrink:0,minWidth:48,fontSize:11}}>{ic.code}{ic.isPrefix?"~":""}</span>
+                    <span>{ic.name||""}</span>
+                  </div>
+                ))}
+              </div>
+            ):null;
+          })()}
           {r.severity&&<Row l={`重症度等（${r.severity.name}）`} v={r.severity.label} c="#fbbf24" />}
           {r.condLabel&&<Row l="病態等分類" v={r.condLabel} c="#fbbf24" />}
         </div>
@@ -74,8 +89,8 @@ export default function Detail({r,onClose,sd}){
             {icds.slice(0,100).map((c,i)=>(<div key={i} style={{fontSize:12,color:"#94a3b8",padding:"2px 0",display:"flex",gap:6}}><span style={{color:"#38bdf8",fontFamily:M,flexShrink:0,minWidth:48,fontSize:11}}>{c}</span><span>{cleanName(D.icn[c]||"")}</span></div>))}
             {icds.length>100&&<div style={{color:"#475569",fontSize:11,marginTop:2}}>他{icds.length-100}件</div>}
           </Sec>
-          <Sec title={`手術定義（${Object.keys(si).length}区分）`}>
-            {Object.entries(si).sort((a,b)=>{if(a[0]==="99")return 1;if(b[0]==="99")return-1;if(a[0]==="97")return 1;if(b[0]==="97")return-1;return a[0].localeCompare(b[0]);}).map(([corr,idx],i)=>(
+          <Sec title={`手術定義（${Object.entries(si).filter(([c])=>validSv.has(c)).length}区分）`}>
+            {Object.entries(si).filter(([c])=>validSv.has(c)).sort((a,b)=>{if(a[0]==="99")return 1;if(b[0]==="99")return-1;if(a[0]==="97")return 1;if(b[0]==="97")return-1;return a[0].localeCompare(b[0]);}).map(([corr,idx],i)=>(
               <div key={i} style={{color:"#cbd5e1",marginBottom:3,fontSize:12}}>
                 <span style={{fontFamily:M,color:corr===r.surgVal?"#f59e0b":"#38bdf8",fontWeight:corr===r.surgVal?700:400,fontSize:11}}>[{corr}]</span>{" "}
                 {D.sl[idx]?.slice(0,3).map(k=>`${k}(${(D.cn[k]||"").slice(0,15)})`).join(", ")}
