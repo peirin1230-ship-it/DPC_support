@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node -e:*)",
+      "Bash(npx vite build)",
+      "Bash(timeout:*)",
+      "Bash(npx vite:*)",
+      "Bash(node:*)",
+      "Bash(del C:Usersrimpeimy-projectDPC_support_check.mjs)",
+      "Bash(del _check.mjs _verify.mjs)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(git push:*)",
+      "Bash(git remote get-url:*)",
+      "WebSearch",
+      "WebFetch(domain:www.mhlw.go.jp)",
+      "WebFetch(domain:medical.mt-pharma.co.jp)",
+      "WebFetch(domain:medical.tanabe-pharma.com)",
+      "WebFetch(domain:bone.jp)",
+      "WebFetch(domain:pha.jp)",
+      "WebFetch(domain:www.kobejrc.jp)",
+      "WebFetch(domain:hodanren.doc-net.or.jp)",
+      "WebFetch(domain:www.prrism.com)",
+      "Bash(python3:*)",
+      "Bash(python:*)",
+      "Bash(git status:*)",
+      "Bash(xargs wc:*)"
+    ]
+  }
+}

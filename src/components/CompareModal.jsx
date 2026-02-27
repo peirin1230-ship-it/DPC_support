@@ -1,9 +1,10 @@
 import { M } from "../styles";
 import { calcTotal } from "../utils";
 import { buildStepPath } from "./SimChart";
+import useModal from "../useModal";
 
 // 比較用カラーパレット（最大4つ）- コントラストが高い配色
-const CMP_CLR = ["#60a5fa", "#4ade80", "#fb923c", "#c084fc"];
+const CMP_CLR = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6"];
 // 線が重なっても区別できるよう線種を使い分ける
 const CMP_DASH = ["", "8 4", "4 4", "12 3 4 3"];
 
@@ -44,22 +45,22 @@ function CompareChart({ items, sd }) {
   }));
 
   return (
-    <div style={{ marginBottom: 14, background: "#0a0f1a", borderRadius: 8, padding: "12px 8px 8px" }}>
-      <div style={{ fontSize: 12, color: "#94a3b8", fontWeight: 600, marginBottom: 8, paddingLeft: 8 }}>点数推移比較（点/日）</div>
-      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }}>
+    <div style={{ marginBottom: 14, background: "#FAFAFA", borderRadius: 8, padding: "12px 8px 8px" }}>
+      <div style={{ fontSize: 12, color: "#737373", fontWeight: 600, marginBottom: 8, paddingLeft: 8 }}>点数推移比較（点/日）</div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" style={{ display: "block" }} role="img" aria-label={`DPC比較チャート: ${nonDk.map(r=>r.code).join(" vs ")}`}>
         {/* Y軸目盛り */}
         {yTicks.map((v, i) => (
           <g key={i}>
-            <line x1={PL} y1={yFn(v)} x2={W - PR} y2={yFn(v)} stroke="#1e293b" strokeWidth="0.5" />
-            <text x={PL - 6} y={yFn(v) + 4} textAnchor="end" fill="#64748b" fontSize="9" fontFamily={M}>{v.toLocaleString()}</text>
+            <line x1={PL} y1={yFn(v)} x2={W - PR} y2={yFn(v)} stroke="#E0E0E0" strokeWidth="0.5" />
+            <text x={PL - 6} y={yFn(v) + 4} textAnchor="end" fill="#737373" fontSize="9" fontFamily={M}>{v.toLocaleString()}</text>
           </g>
         ))}
 
         {/* 境界日の縦ガイド線 */}
         {[...allBounds].sort((a, b) => a - b).map(dv => (
           <g key={dv}>
-            <line x1={xFn(dv)} y1={PT} x2={xFn(dv)} y2={y0} stroke="#1e293b" strokeWidth="0.5" strokeDasharray="3 3" />
-            <text x={xFn(dv)} y={y0 + 14} textAnchor="middle" fill="#64748b" fontSize="8" fontFamily={M}>{dv}日</text>
+            <line x1={xFn(dv)} y1={PT} x2={xFn(dv)} y2={y0} stroke="#E0E0E0" strokeWidth="0.5" strokeDasharray="3 3" />
+            <text x={xFn(dv)} y={y0 + 14} textAnchor="middle" fill="#737373" fontSize="8" fontFamily={M}>{dv}日</text>
           </g>
         ))}
 
@@ -102,14 +103,14 @@ function CompareChart({ items, sd }) {
         {/* 入院日数マーカー */}
         {sd > 0 && sd <= maxDay && (
           <g>
-            <line x1={xFn(sd)} y1={PT} x2={xFn(sd)} y2={y0} stroke="#f87171" strokeWidth="2" />
-            <rect x={xFn(sd) - 16} y={PT - 4} width="32" height="14" rx="3" fill="#f87171" />
+            <line x1={xFn(sd)} y1={PT} x2={xFn(sd)} y2={y0} stroke="#EF4444" strokeWidth="2" />
+            <rect x={xFn(sd) - 16} y={PT - 4} width="32" height="14" rx="3" fill="#EF4444" />
             <text x={xFn(sd)} y={PT + 7} textAnchor="middle" fill="#fff" fontSize="9" fontWeight="700">{sd}日</text>
           </g>
         )}
 
         {/* X軸 */}
-        <line x1={PL} y1={y0} x2={W - PR} y2={y0} stroke="#334155" strokeWidth="1" />
+        <line x1={PL} y1={y0} x2={W - PR} y2={y0} stroke="#D4D4D4" strokeWidth="1" />
       </svg>
       {/* 凡例 — 大きくわかりやすく */}
       <div style={{ display: "flex", gap: 16, marginTop: 8, paddingLeft: 8, flexWrap: "wrap" }}>
@@ -121,8 +122,8 @@ function CompareChart({ items, sd }) {
         ))}
         {sd > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <svg width="24" height="10"><line x1="12" y1="0" x2="12" y2="10" stroke="#f87171" strokeWidth="2" /></svg>
-            <span style={{ color: "#f87171", fontSize: 11 }}>{sd}日入院</span>
+            <svg width="24" height="10"><line x1="12" y1="0" x2="12" y2="10" stroke="#EF4444" strokeWidth="2" /></svg>
+            <span style={{ color: "#EF4444", fontSize: 11 }}>{sd}日入院</span>
           </div>
         )}
       </div>
@@ -131,6 +132,7 @@ function CompareChart({ items, sd }) {
 }
 
 export default function CompareModal({items,onClose,sd}){
+  const modalRef=useModal(onClose);
   if(!items||items.length<2)return null;
   const ti=items.map(r=>calcTotal(r.days,r.points,sd));
   const tots=ti.map(t=>t?t.total:0);
@@ -153,11 +155,12 @@ export default function CompareModal({items,onClose,sd}){
   });
 
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.75)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
-      <div style={{background:"#111827",borderRadius:12,border:"1px solid #1e293b",maxWidth:"94vw",maxHeight:"85vh",overflow:"auto",padding:20,minWidth:400}} onClick={e=>e.stopPropagation()}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.3)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="DPC比較" style={{background:"#FFFFFF",borderRadius:12,border:"1px solid #E0E0E0",boxShadow:"0 16px 48px rgba(0,0,0,.12)",maxWidth:"94vw",maxHeight:"85vh",overflow:"auto",padding:20,minWidth:400}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
-          <div style={{fontSize:16,fontWeight:700,color:"#f1f5f9"}}>DPC比較{sd?` （${sd}日入院）`:""}</div>
-          <button onClick={onClose} style={{background:"#1e293b",border:"none",color:"#94a3b8",cursor:"pointer",width:32,height:32,borderRadius:6,fontSize:14}}>✕</button>
+          <div style={{fontSize:16,fontWeight:700,color:"#262626"}}>DPC比較{sd?` （${sd}日入院）`:""}</div>
+          <button onClick={onClose} aria-label="閉じる" style={{background:"#F5F5F5",border:"none",color:"#737373",cursor:"pointer",width:32,height:32,borderRadius:6,fontSize:14,transition:"background .15s"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}>✕</button>
         </div>
 
         {/* 比較チャート */}
@@ -169,28 +172,28 @@ export default function CompareModal({items,onClose,sd}){
               const vs=items.map(fn);const same=vs.every(v=>v===vs[0]);
               const ni=numInfo[fi];
               return(<tr key={fi}>
-                <td style={{padding:"6px 10px",background:"#0a0f1a",color:"#94a3b8",fontWeight:600,borderBottom:"1px solid #1e293b",fontSize:12,whiteSpace:"nowrap"}}>{lb}</td>
+                <td style={{padding:"6px 10px",background:"#FAFAFA",color:"#737373",fontWeight:600,borderBottom:"1px solid #E0E0E0",fontSize:12,whiteSpace:"nowrap"}}>{lb}</td>
                 {items.map((it,ii)=>{
                   const v=fn(it);const dk=lb==="区分"&&v==="出来高";const diff=!same&&fi>0;
-                  let cellColor=dk?"#ef4444":diff?"#fbbf24":"#cbd5e1";
+                  let cellColor=dk?"#EF4444":diff?"#F59E0B":"#404040";
                   let cellBg="transparent";
                   if(ni&&typeof v==="number"&&v>0){
-                    if(v===ni.max&&ni.max!==ni.min){cellColor="#60a5fa";cellBg="rgba(96,165,250,.06)";}
-                    else if(v===ni.min&&ni.max!==ni.min){cellColor="#ef4444";cellBg="rgba(239,68,68,.06)";}
+                    if(v===ni.max&&ni.max!==ni.min){cellColor="#3B82F6";cellBg="rgba(59,130,246,.06)";}
+                    else if(v===ni.min&&ni.max!==ni.min){cellColor="#EF4444";cellBg="rgba(239,68,68,.06)";}
                   }
                   // DPC行にカラー丸をつけて凡例と対応
                   const dpcDot = lb==="DPC" ? <span style={{display:"inline-block",width:8,height:8,borderRadius:4,background:CMP_CLR[ii%CMP_CLR.length],marginRight:6,verticalAlign:"middle"}} /> : null;
                   const dispVal=cmp?(v>0?(lb.startsWith("期間")?v+"日":v.toLocaleString()):"-"):v;
-                  return(<td key={ii} style={{padding:"6px 10px",borderBottom:"1px solid #1e293b",color:cellColor,fontWeight:dk||(ni&&v===ni.max)?700:diff?600:400,fontFamily:mono?M:"inherit",background:cellBg}}>{dpcDot}{dispVal}</td>);
+                  return(<td key={ii} style={{padding:"6px 10px",borderBottom:"1px solid #E0E0E0",color:cellColor,fontWeight:dk||(ni&&v===ni.max)?700:diff?600:400,fontFamily:mono?M:"inherit",background:cellBg}}>{dpcDot}{dispVal}</td>);
                 })}
               </tr>);
             })}
             {sd>0&&(
-              <tr><td style={{padding:"8px 10px",background:"#0f172a",color:"#60a5fa",fontWeight:700,borderBottom:"1px solid #1e293b",fontSize:13}}>総点数</td>
+              <tr><td style={{padding:"8px 10px",background:"#FAFAFA",color:"#3B82F6",fontWeight:700,borderBottom:"1px solid #E0E0E0",fontSize:13}}>総点数</td>
                 {items.map((it,ii)=>{
                   const t=tots[ii];const maxT=Math.max(...tots.filter(x=>x>0));const minT=Math.min(...tots.filter(x=>x>0));
                   const best=t===maxT&&t>0&&maxT!==minT;const worst=t===minT&&t>0&&maxT!==minT;
-                  return(<td key={ii} style={{padding:"8px 10px",borderBottom:"1px solid #1e293b",color:it.isDekidaka?"#ef4444":best?"#60a5fa":worst?"#ef4444":"#cbd5e1",fontWeight:700,fontFamily:M,fontSize:16,background:best?"rgba(96,165,250,.06)":worst?"rgba(239,68,68,.06)":"#0f172a"}}>{it.isDekidaka?"出来高":(t?t.toLocaleString():"-")}</td>);
+                  return(<td key={ii} style={{padding:"8px 10px",borderBottom:"1px solid #E0E0E0",color:it.isDekidaka?"#EF4444":best?"#3B82F6":worst?"#EF4444":"#404040",fontWeight:700,fontFamily:M,fontSize:16,background:best?"rgba(59,130,246,.06)":worst?"rgba(239,68,68,.06)":"#FAFAFA"}}>{it.isDekidaka?"出来高":(t?t.toLocaleString():"-")}</td>);
                 })}</tr>
             )}
           </tbody>

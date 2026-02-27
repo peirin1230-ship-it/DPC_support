@@ -17,11 +17,11 @@ export default function DrillDown({options,drillP1,drillP2,onSelectP1,onSelectP2
           const dispName=item.drugAlias?`${item.name}（${item.drugAlias.slice(0,15)}）`:item.name;
           return(
             <div key={i} onClick={()=>onSelect(item.code)}
-              style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"#111827",borderRadius:4,cursor:"pointer",fontSize:12,border:"1px solid #1e293b"}}
-              onMouseEnter={e=>{e.currentTarget.style.borderColor="#38bdf8";e.currentTarget.style.background="#1a2640";}}
-              onMouseLeave={e=>{e.currentTarget.style.borderColor="#1e293b";e.currentTarget.style.background="#111827";}}>
-              <span style={{color:"#38bdf8",fontFamily:M,fontSize:11,flexShrink:0,minWidth:70}}>{item.code}</span>
-              <span style={{color:"#cbd5e1",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName?dispName.slice(0,30):""}</span>
+              style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"#FAFAFA",borderRadius:4,cursor:"pointer",fontSize:12,border:"1px solid #E0E0E0",transition:"background .15s, border-color .15s"}}
+              onMouseEnter={e=>{e.currentTarget.style.borderColor="#D4D4D4";e.currentTarget.style.background="#F5F5F5";}}
+              onMouseLeave={e=>{e.currentTarget.style.borderColor="#E0E0E0";e.currentTarget.style.background="#FAFAFA";}}>
+              <span style={{color:"#3B82F6",fontFamily:M,fontSize:11,flexShrink:0,minWidth:70}}>{item.code}</span>
+              <span style={{color:"#404040",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName?dispName.slice(0,30):""}</span>
             </div>
           );
         })}
@@ -32,51 +32,51 @@ export default function DrillDown({options,drillP1,drillP2,onSelectP1,onSelectP2
   const totalCount=p1Items.length+p2Items.length;
 
   return(
-    <div style={{background:"#0f172a",border:"1px solid #1e293b",borderRadius:8,padding:"10px 14px",marginTop:8}}>
+    <div style={{background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:8,padding:"10px 14px"}}>
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:collapsed?0:(hasOptions||hasSelection?8:0)}}>
-        <button onClick={()=>setCollapsed(!collapsed)} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",padding:0}}>
-          <span style={{color:"#64748b",transform:collapsed?"none":"rotate(90deg)",transition:"transform .15s",display:"inline-block",fontSize:12}}>▸</span>
-          <span style={{fontSize:13,fontWeight:700,color:"#f1f5f9"}}>他に評価される項目</span>
-          {collapsed&&totalCount>0&&<span style={{fontSize:11,color:"#64748b"}}>（{totalCount}件）</span>}
+        <button onClick={()=>setCollapsed(!collapsed)} aria-expanded={!collapsed} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",cursor:"pointer",padding:0}}>
+          <span style={{color:"#737373",transform:collapsed?"none":"rotate(90deg)",transition:"transform .15s",display:"inline-block",fontSize:12}}>▸</span>
+          <span style={{fontSize:13,fontWeight:700,color:"#262626"}}>他に評価される項目</span>
+          {collapsed&&totalCount>0&&<span style={{fontSize:11,color:"#737373"}}>（{totalCount}件）</span>}
         </button>
         <div style={{display:"flex",gap:6}}>
           {hasSelection&&(
-            <button onClick={onClear} style={{padding:"3px 10px",background:"#1e293b",border:"none",borderRadius:4,color:"#94a3b8",cursor:"pointer",fontSize:11}}>選択をクリア</button>
+            <button onClick={onClear} style={{padding:"3px 10px",background:"#F2F2F2",border:"1px solid #E0E0E0",borderRadius:4,color:"#737373",cursor:"pointer",fontSize:11}}>選択をクリア</button>
           )}
         </div>
       </div>
       {!collapsed&&(
         <>
           {drillP1&&(
-            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"rgba(34,197,94,.08)",border:"1px solid rgba(34,197,94,.2)",borderRadius:4,marginBottom:6,fontSize:12}}>
-              <span style={{color:"#22c55e",flexShrink:0}}>選択中 処置等1:</span>
-              <span style={{color:"#38bdf8",fontFamily:M}}>{drillP1}</span>
-              <span style={{color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{D.cn[drillP1]||""}</span>
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"rgba(16,185,129,.06)",border:"1px solid rgba(16,185,129,.2)",borderRadius:4,marginBottom:6,fontSize:12}}>
+              <span style={{color:"#10B981",flexShrink:0}}>選択中 処置等1:</span>
+              <span style={{color:"#3B82F6",fontFamily:M}}>{drillP1}</span>
+              <span style={{color:"#737373",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{D.cn[drillP1]||""}</span>
             </div>
           )}
           {drillP2&&(
-            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"rgba(34,197,94,.08)",border:"1px solid rgba(34,197,94,.2)",borderRadius:4,marginBottom:6,fontSize:12}}>
-              <span style={{color:"#22c55e",flexShrink:0}}>選択中 処置等2:</span>
-              <span style={{color:"#38bdf8",fontFamily:M}}>{drillP2}</span>
-              <span style={{color:"#94a3b8",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{D.cn[drillP2]||""}{D.da?.[drillP2]?.[0]?`（${D.da[drillP2][0]}）`:""}</span>
+            <div style={{display:"flex",alignItems:"center",gap:6,padding:"4px 8px",background:"rgba(16,185,129,.06)",border:"1px solid rgba(16,185,129,.2)",borderRadius:4,marginBottom:6,fontSize:12}}>
+              <span style={{color:"#10B981",flexShrink:0}}>選択中 処置等2:</span>
+              <span style={{color:"#3B82F6",fontFamily:M}}>{drillP2}</span>
+              <span style={{color:"#737373",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{D.cn[drillP2]||""}{D.da?.[drillP2]?.[0]?`（${D.da[drillP2][0]}）`:""}</span>
             </div>
           )}
           <div style={{maxHeight:200,overflowY:"auto"}}>
             {p1Items.length>0&&(
               <div style={{marginBottom:p2Items.length>0?8:0}}>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>手術・処置等1</div>
+                <div style={{fontSize:11,color:"#737373",fontWeight:600,marginBottom:4}}>手術・処置等1</div>
                 {renderItems(p1Items,onSelectP1)}
               </div>
             )}
             {p2Items.length>0&&(
               <div>
-                <div style={{fontSize:11,color:"#64748b",fontWeight:600,marginBottom:4}}>手術・処置等2</div>
+                <div style={{fontSize:11,color:"#737373",fontWeight:600,marginBottom:4}}>手術・処置等2</div>
                 {renderItems(p2Items,onSelectP2)}
               </div>
             )}
           </div>
           {!hasOptions&&hasSelection&&(
-            <div style={{fontSize:12,color:"#64748b",textAlign:"center",padding:4}}>これ以上評価される項目はありません</div>
+            <div style={{fontSize:12,color:"#737373",textAlign:"center",padding:4}}>これ以上評価される項目はありません</div>
           )}
         </>
       )}
