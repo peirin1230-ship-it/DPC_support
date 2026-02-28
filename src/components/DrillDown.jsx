@@ -16,13 +16,13 @@ export default function DrillDown({options,drillP1,drillP2,onSelectP1,onSelectP2
         {items.map((item,i)=>{
           const dispName=item.drugAlias?`${item.name}（${item.drugAlias.slice(0,15)}）`:item.name;
           return(
-            <div key={i} onClick={()=>onSelect(item.code)}
-              style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"#FAFAFA",borderRadius:4,cursor:"pointer",fontSize:12,border:"1px solid #E0E0E0",transition:"background .15s, border-color .15s"}}
+            <button key={i} onClick={()=>onSelect(item.code)}
+              style={{display:"flex",alignItems:"center",gap:8,padding:"4px 8px",background:"#FAFAFA",borderRadius:4,cursor:"pointer",fontSize:12,border:"1px solid #E0E0E0",transition:"background .15s, border-color .15s",width:"100%",textAlign:"left"}}
               onMouseEnter={e=>{e.currentTarget.style.borderColor="#D4D4D4";e.currentTarget.style.background="#F5F5F5";}}
               onMouseLeave={e=>{e.currentTarget.style.borderColor="#E0E0E0";e.currentTarget.style.background="#FAFAFA";}}>
               <span style={{color:"#3B82F6",fontFamily:M,fontSize:11,flexShrink:0,minWidth:70}}>{item.code}</span>
               <span style={{color:"#404040",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName?dispName.slice(0,30):""}</span>
-            </div>
+            </button>
           );
         })}
       </div>

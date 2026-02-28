@@ -2,8 +2,8 @@ import { useMemo } from "react";
 import { M } from "../styles";
 import useModal from "../useModal";
 
-// 期間I=青, II=緑, III=オレンジ
-const P_CLR = ["#3B82F6", "#10B981", "#F59E0B"];
+// 全期間同一色（比較時と統一性を持たせるため）
+const LINE_CLR = "#3B82F6";
 
 // 階段状のパス（塗りつぶし用・閉じたパス）を生成するヘルパー
 // days=[d1,d2,d3], points=[p1,p2,p3] から「点/日」のステップ形状を作る
@@ -57,9 +57,9 @@ export default function SimChart({ r, sd, onClose }) {
 
   // 期間サマリー
   const periods = [];
-  if (d1 && p1) periods.push({ label: "I", d: `${d1}日`, pts: p1, total: d1 * p1, color: P_CLR[0] });
-  if (d2 && p2) periods.push({ label: "II", d: `${(d1||0)+1}〜${d2}日`, pts: p2, total: ((d2||0)-(d1||0))*p2, color: P_CLR[1] });
-  if (d3 && p3) periods.push({ label: "III", d: `${(d2||0)+1}〜${d3}日`, pts: p3, total: ((d3||0)-(d2||0))*p3, color: P_CLR[2] });
+  if (d1 && p1) periods.push({ label: "I", d: `${d1}日`, pts: p1, total: d1 * p1, color: LINE_CLR });
+  if (d2 && p2) periods.push({ label: "II", d: `${(d1||0)+1}〜${d2}日`, pts: p2, total: ((d2||0)-(d1||0))*p2, color: LINE_CLR });
+  if (d3 && p3) periods.push({ label: "III", d: `${(d2||0)+1}〜${d3}日`, pts: p3, total: ((d3||0)-(d2||0))*p3, color: LINE_CLR });
   // sd指定時の正確な合計
   const sdTotal = useMemo(() => {
     if (!sd || sd <= 0) return 0;
@@ -85,8 +85,8 @@ export default function SimChart({ r, sd, onClose }) {
             <span style={{ color: "#3B82F6", fontFamily: M, fontSize: 15, fontWeight: 700 }}>{r.code}</span>
             <span style={{ color: "#737373", fontSize: 13 }}>点数推移</span>
           </div>
-          <button onClick={onClose} aria-label="閉じる" style={{ background: "#F5F5F5", border: "none", color: "#737373", cursor: "pointer", width: 28, height: 28, borderRadius: 6, fontSize: 13, transition: "background .15s" }}
-            onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}>✕</button>
+          <button onClick={onClose} aria-label="閉じる" style={{ background: "#F5F5F5", border: "none", color: "#737373", cursor: "pointer", width: 40, height: 40, borderRadius: 8, transition: "background .15s", display: "flex", alignItems: "center", justifyContent: "center" }}
+            onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/></svg></button>
         </div>
 
         {/* グラフ */}
@@ -113,7 +113,7 @@ export default function SimChart({ r, sd, onClose }) {
             {segs.map((s, i) => (
               <g key={i}>
                 <line x1={xFn(s.x0)} y1={yFn(s.y)} x2={xFn(s.x1)} y2={yFn(s.y)}
-                  stroke={P_CLR[s.pi]} strokeWidth="2.5" />
+                  stroke={LINE_CLR} strokeWidth="2.5" />
                 {/* 段差（縦線） */}
                 {i > 0 && <line x1={xFn(s.x0)} y1={yFn(segs[i-1].y)} x2={xFn(s.x0)} y2={yFn(s.y)}
                   stroke="#A6A6A6" strokeWidth="1" strokeDasharray="3 2" />}
@@ -130,7 +130,7 @@ export default function SimChart({ r, sd, onClose }) {
 
             {/* 各期間の点数ラベル（線の右端に表示） */}
             {segs.map((s, i) => (
-              <text key={i} x={xFn(s.x1) - 4} y={yFn(s.y) - 6} textAnchor="end" fill={P_CLR[s.pi]} fontSize="11" fontWeight="700" fontFamily={M}>
+              <text key={i} x={xFn(s.x1) - 4} y={yFn(s.y) - 6} textAnchor="end" fill={LINE_CLR} fontSize="11" fontWeight="700" fontFamily={M}>
                 {s.y.toLocaleString()}
               </text>
             ))}
@@ -161,9 +161,12 @@ export default function SimChart({ r, sd, onClose }) {
             ))}
           </div>
           {sd > 0 && (
-            <div style={{ marginTop: 8, background: "#FAFAFA", borderRadius: 6, padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <span style={{ color: "#737373", fontSize: 13 }}>{sd}日入院の総点数{sd > (d3||0) ? <span style={{ color: "#EF4444" }}>（{sd-(d3||0)}日は出来高）</span> : ""}</span>
-              <span style={{ fontFamily: M, color: "#F59E0B", fontWeight: 700, fontSize: 18 }}>{sdTotal.toLocaleString()} 点</span>
+            <div style={{ marginTop: 8, background: "#FAFAFA", borderRadius: 6, padding: "8px 12px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+                <span style={{ color: "#737373", fontSize: 13 }}>{sd}日入院の総点数{sd > (d3||0) ? <span style={{ color: "#EF4444" }}>（{sd-(d3||0)}日は出来高）</span> : ""}</span>
+                <span style={{ fontFamily: M, color: "#F59E0B", fontWeight: 700, fontSize: 18 }}>{sdTotal.toLocaleString()} 点</span>
+              </div>
+              {sd > (d3||0) && <div style={{ color: "#C0392B", fontSize: 11, marginTop: 4 }}>※上記はDPC包括分のみの点数です（出来高{sd-(d3||0)}日分は含まれていません）</div>}
             </div>
           )}
         </div>

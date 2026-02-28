@@ -3,13 +3,24 @@ import { calcTotal } from "../utils";
 import { buildStepPath } from "./SimChart";
 import useModal from "../useModal";
 
-// 比較用カラーパレット（最大4つ）- コントラストが高い配色
-const CMP_CLR = ["#3B82F6", "#10B981", "#F59E0B", "#8B5CF6"];
-// 線が重なっても区別できるよう線種を使い分ける
-const CMP_DASH = ["", "8 4", "4 4", "12 3 4 3"];
+// 点数順位に基づく色: 最高=赤, 最低=青, それ以外=グレー
+const CLR_HIGH = "#C0392B"; // 赤（最高点数）
+const CLR_LOW  = "#4B7BB5"; // 青（最低点数）
+const CLR_DEF  = "#9CA3AF"; // グレー（中間）
+
+// 総点数の順位に基づいて各アイテムに色を割り当てる
+function assignColors(tots) {
+  const n = tots.length;
+  if (n < 2) return [CLR_HIGH];
+  const ranked = tots.map((t, i) => ({ t, i })).sort((a, b) => b.t - a.t);
+  const colors = new Array(n).fill(CLR_DEF);
+  colors[ranked[0].i] = CLR_HIGH; // 最高→赤
+  colors[ranked[n - 1].i] = CLR_LOW; // 最低→青
+  return colors;
+}
 
 // 比較チャート — 複数DPCの点数推移を重ねて表示
-function CompareChart({ items, sd }) {
+function CompareChart({ items, sd, colors }) {
   const nonDk = items.filter(r => !r.isDekidaka);
   if (nonDk.length === 0) return null;
 
@@ -34,15 +45,19 @@ function CompareChart({ items, sd }) {
   const allBounds = new Set();
   nonDk.forEach(r => r.days.filter(Boolean).forEach(d => allBounds.add(d)));
 
-  // 各DPCのステップパスを計算
-  const paths = nonDk.map((r, i) => ({
-    ...buildStepPath(r.days, r.points, xFn, yFn, y0),
-    color: CMP_CLR[i % CMP_CLR.length],
-    dash: CMP_DASH[i % CMP_DASH.length],
-    code: r.code,
-    days: r.days,
-    points: r.points
-  }));
+  // 各DPCのステップパスを計算（色は親から渡された順位ベース色を使用）
+  const paths = nonDk.map((r, i) => {
+    const origIdx = items.indexOf(r);
+    const lastDay = r.days[2] || r.days[1] || r.days[0] || 0;
+    return {
+      ...buildStepPath(r.days, r.points, xFn, yFn, y0),
+      color: colors[origIdx] || CLR_DEF,
+      code: r.code,
+      days: r.days,
+      points: r.points,
+      lastDay
+    };
+  });
 
   return (
     <div style={{ marginBottom: 14, background: "#FAFAFA", borderRadius: 8, padding: "12px 8px 8px" }}>
@@ -69,6 +84,19 @@ function CompareChart({ items, sd }) {
           <path key={`f${i}`} d={p.fill} fill={p.color} opacity="0.06" />
         ))}
 
+        {/* 出来高ゾーン — DPC期間IIIを超える部分を薄い背景で表示 */}
+        {sd > 0 && paths.map((p, pi) => {
+          if (p.lastDay <= 0 || sd <= p.lastDay) return null;
+          return (
+            <g key={`dk${pi}`}>
+              <rect x={xFn(p.lastDay)} y={PT} width={xFn(Math.min(sd, maxDay)) - xFn(p.lastDay)} height={cH}
+                fill={p.color} opacity="0.06" stroke={p.color} strokeWidth="0.5" strokeDasharray="4 3" />
+              <text x={(xFn(p.lastDay) + xFn(Math.min(sd, maxDay))) / 2} y={PT + 12 + pi * 14}
+                textAnchor="middle" fill={p.color} fontSize="8" opacity="0.7">出来高</text>
+            </g>
+          );
+        })}
+
         {/* 各DPCのステップ線 + 段差の縦線 + 境界ドット */}
         {paths.map((p, pi) => (
           <g key={`g${pi}`}>
@@ -76,35 +104,55 @@ function CompareChart({ items, sd }) {
               <g key={j}>
                 {/* 水平線 */}
                 <line x1={xFn(s.x0)} y1={yFn(s.y)} x2={xFn(s.x1)} y2={yFn(s.y)}
-                  stroke={p.color} strokeWidth="3" strokeDasharray={p.dash} strokeLinecap="round" />
+                  stroke={p.color} strokeWidth="2" strokeLinecap="round" />
                 {/* 段差の縦点線 */}
                 {j > 0 && <line x1={xFn(s.x0)} y1={yFn(p.segs[j-1].y)} x2={xFn(s.x0)} y2={yFn(s.y)}
                   stroke={p.color} strokeWidth="1" strokeDasharray="2 2" opacity="0.5" />}
                 {/* 境界ドット */}
-                <circle cx={xFn(s.x0)} cy={yFn(s.y)} r="3.5" fill={p.color} />
-                {j === p.segs.length - 1 && <circle cx={xFn(s.x1)} cy={yFn(s.y)} r="3.5" fill={p.color} />}
+                <circle cx={xFn(s.x0)} cy={yFn(s.y)} r="2.5" fill={p.color} />
+                {j === p.segs.length - 1 && <circle cx={xFn(s.x1)} cy={yFn(s.y)} r="2.5" fill={p.color} />}
               </g>
             ))}
-            {/* 点数値ラベル — 各期間の中間上に表示 */}
-            {p.segs.map((s, j) => {
-              const mx = (xFn(s.x0) + xFn(s.x1)) / 2;
-              // 重なり回避: DPCごとにラベルを少し上下にずらす
-              const offset = -8 - pi * 13;
-              return (
-                <text key={`t${j}`} x={mx} y={yFn(s.y) + offset} textAnchor="middle"
-                  fill={p.color} fontSize="10" fontWeight="700" fontFamily={M}>
-                  {s.y.toLocaleString()}
-                </text>
-              );
-            })}
           </g>
         ))}
+
+        {/* 点数値ラベル — 重なり回避のため全パス分をまとめて配置 */}
+        {(() => {
+          // 全ラベル候補を集める
+          const labels = [];
+          paths.forEach((p, pi) => {
+            p.segs.forEach((s, j) => {
+              const mx = (xFn(s.x0) + xFn(s.x1)) / 2;
+              labels.push({ x: mx, baseY: yFn(s.y), val: s.y, color: p.color, pi, j });
+            });
+          });
+          // Y座標でソートし、近いラベル同士をずらす
+          labels.sort((a, b) => a.baseY - b.baseY);
+          const placed = [];
+          const LH = 12; // ラベル高さ
+          labels.forEach(lb => {
+            let ty = lb.baseY - 8;
+            for (let attempt = 0; attempt < 6; attempt++) {
+              const overlap = placed.some(p => Math.abs(p.x - lb.x) < 40 && Math.abs(p.y - ty) < LH);
+              if (!overlap) break;
+              ty -= LH;
+            }
+            placed.push({ x: lb.x, y: ty });
+            lb.finalY = ty;
+          });
+          return labels.map((lb, i) => (
+            <text key={`lb${i}`} x={lb.x} y={lb.finalY} textAnchor="middle"
+              fill={lb.color} fontSize="10" fontWeight="700" fontFamily={M}>
+              {lb.val.toLocaleString()}
+            </text>
+          ));
+        })()}
 
         {/* 入院日数マーカー */}
         {sd > 0 && sd <= maxDay && (
           <g>
-            <line x1={xFn(sd)} y1={PT} x2={xFn(sd)} y2={y0} stroke="#EF4444" strokeWidth="2" />
-            <rect x={xFn(sd) - 16} y={PT - 4} width="32" height="14" rx="3" fill="#EF4444" />
+            <line x1={xFn(sd)} y1={PT} x2={xFn(sd)} y2={y0} stroke="#C0392B" strokeWidth="2" />
+            <rect x={xFn(sd) - 16} y={PT - 4} width="32" height="14" rx="3" fill="#C0392B" />
             <text x={xFn(sd)} y={PT + 7} textAnchor="middle" fill="#fff" fontSize="9" fontWeight="700">{sd}日</text>
           </g>
         )}
@@ -116,14 +164,14 @@ function CompareChart({ items, sd }) {
       <div style={{ display: "flex", gap: 16, marginTop: 8, paddingLeft: 8, flexWrap: "wrap" }}>
         {paths.map((p, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke={p.color} strokeWidth="3" strokeDasharray={p.dash} strokeLinecap="round" /><circle cx="12" cy="5" r="3" fill={p.color} /></svg>
+            <svg width="24" height="10"><line x1="0" y1="5" x2="24" y2="5" stroke={p.color} strokeWidth="2" strokeLinecap="round" /><circle cx="12" cy="5" r="2.5" fill={p.color} /></svg>
             <span style={{ color: p.color, fontFamily: M, fontWeight: 700, fontSize: 12 }}>{p.code}</span>
           </div>
         ))}
         {sd > 0 && (
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <svg width="24" height="10"><line x1="12" y1="0" x2="12" y2="10" stroke="#EF4444" strokeWidth="2" /></svg>
-            <span style={{ color: "#EF4444", fontSize: 11 }}>{sd}日入院</span>
+            <svg width="24" height="10"><line x1="12" y1="0" x2="12" y2="10" stroke="#C0392B" strokeWidth="2" /></svg>
+            <span style={{ color: "#C0392B", fontSize: 11 }}>{sd}日入院</span>
           </div>
         )}
       </div>
@@ -136,6 +184,7 @@ export default function CompareModal({items,onClose,sd}){
   if(!items||items.length<2)return null;
   const ti=items.map(r=>calcTotal(r.days,r.points,sd));
   const tots=ti.map(t=>t?t.total:0);
+  const colors=assignColors(tots);
   const hasSev=items.some(r=>r.severity);const hasCond=items.some(r=>r.condLabel);
   const fields=[
     ["DPC",r=>r.code,1],["分類",r=>r.clsName],
@@ -159,43 +208,71 @@ export default function CompareModal({items,onClose,sd}){
       <div ref={modalRef} role="dialog" aria-modal="true" aria-label="DPC比較" style={{background:"#FFFFFF",borderRadius:12,border:"1px solid #E0E0E0",boxShadow:"0 16px 48px rgba(0,0,0,.12)",maxWidth:"94vw",maxHeight:"85vh",overflow:"auto",padding:20,minWidth:400}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:16,fontWeight:700,color:"#262626"}}>DPC比較{sd?` （${sd}日入院）`:""}</div>
-          <button onClick={onClose} aria-label="閉じる" style={{background:"#F5F5F5",border:"none",color:"#737373",cursor:"pointer",width:32,height:32,borderRadius:6,fontSize:14,transition:"background .15s"}}
-            onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}>✕</button>
+          <button onClick={onClose} aria-label="閉じる" style={{background:"#F5F5F5",border:"none",color:"#737373",cursor:"pointer",width:40,height:40,borderRadius:8,transition:"background .15s",display:"flex",alignItems:"center",justifyContent:"center"}}
+            onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/></svg></button>
         </div>
 
         {/* 比較チャート */}
-        <CompareChart items={items} sd={sd} />
+        <CompareChart items={items} sd={sd} colors={colors} />
 
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:13}}>
+          <caption style={{textAlign:"left",fontSize:12,color:"#737373",padding:"0 0 6px",fontWeight:600}}>DPC比較表{sd?`（${sd}日入院）`:""}</caption>
+          <thead>
+            <tr>
+              <th scope="col" style={{padding:"6px 10px",background:"#FAFAFA",color:"#737373",fontWeight:600,borderBottom:"1px solid #E0E0E0",fontSize:12,whiteSpace:"nowrap",textAlign:"left"}}>DPC</th>
+              {items.map((it,ii)=>{const c=colors[ii];return(
+                <th key={ii} scope="col" style={{padding:"6px 10px",borderBottom:"1px solid #E0E0E0",color:c,fontWeight:700,fontFamily:M,textAlign:"left"}}>
+                  <span style={{display:"inline-block",width:8,height:8,borderRadius:4,background:c,marginRight:6,verticalAlign:"middle"}}/>{it.code}
+                </th>
+              );})}
+            </tr>
+          </thead>
           <tbody>
-            {fields.map(([lb,fn,mono,cmp],fi)=>{
+            {fields.filter(([lb])=>lb!=="DPC").map(([lb,fn,mono,cmp],fi)=>{
               const vs=items.map(fn);const same=vs.every(v=>v===vs[0]);
-              const ni=numInfo[fi];
-              return(<tr key={fi}>
-                <td style={{padding:"6px 10px",background:"#FAFAFA",color:"#737373",fontWeight:600,borderBottom:"1px solid #E0E0E0",fontSize:12,whiteSpace:"nowrap"}}>{lb}</td>
+              const ni=numInfo[fi+1];
+              // 行内の差異情報を事前計算
+              const di=(()=>{if(same)return null;const cnt=new Map();vs.forEach(x=>cnt.set(x,(cnt.get(x)||0)+1));const mx=Math.max(...cnt.values());return{cnt,mx,maj:mx>vs.length/2};})();
+              return(<tr key={lb}>
+                <th scope="row" style={{padding:"6px 10px",background:"#FAFAFA",color:"#737373",fontWeight:600,borderBottom:"1px solid #E0E0E0",fontSize:12,whiteSpace:"nowrap",textAlign:"left"}}>{lb}</th>
                 {items.map((it,ii)=>{
-                  const v=fn(it);const dk=lb==="区分"&&v==="出来高";const diff=!same&&fi>0;
-                  let cellColor=dk?"#EF4444":diff?"#F59E0B":"#404040";
-                  let cellBg="transparent";
-                  if(ni&&typeof v==="number"&&v>0){
-                    if(v===ni.max&&ni.max!==ni.min){cellColor="#3B82F6";cellBg="rgba(59,130,246,.06)";}
-                    else if(v===ni.min&&ni.max!==ni.min){cellColor="#EF4444";cellBg="rgba(239,68,68,.06)";}
-                  }
-                  // DPC行にカラー丸をつけて凡例と対応
-                  const dpcDot = lb==="DPC" ? <span style={{display:"inline-block",width:8,height:8,borderRadius:4,background:CMP_CLR[ii%CMP_CLR.length],marginRight:6,verticalAlign:"middle"}} /> : null;
+                  const v=fn(it);const dk=lb==="区分"&&v==="出来高";const diff=!same;
+                  // 明確な多数派がある場合は少数派のみ、なければ全セルをハイライト（期間・点数行は除外）
+                  const cellDiff=!cmp&&di&&(di.maj?di.cnt.get(v)<di.mx:true);
+                  const c=colors[ii];const isHL=c===CLR_HIGH||c===CLR_LOW;
+                  let cellColor=dk?"#C0392B":(cmp&&isHL)?c:isHL?"#404040":"#737373";
+                  let cellBg=cellDiff?"rgba(251,191,36,.12)":(cmp&&isHL)?`${c}0F`:"transparent";
                   const dispVal=cmp?(v>0?(lb.startsWith("期間")?v+"日":v.toLocaleString()):"-"):v;
-                  return(<td key={ii} style={{padding:"6px 10px",borderBottom:"1px solid #E0E0E0",color:cellColor,fontWeight:dk||(ni&&v===ni.max)?700:diff?600:400,fontFamily:mono?M:"inherit",background:cellBg}}>{dpcDot}{dispVal}</td>);
+                  return(<td key={ii} style={{padding:"6px 10px",borderBottom:"1px solid #E0E0E0",color:cellColor,fontWeight:dk||(cmp&&isHL)?700:diff?600:400,fontFamily:mono?M:"inherit",background:cellBg}}>{dispVal}</td>);
                 })}
               </tr>);
             })}
-            {sd>0&&(
-              <tr><td style={{padding:"8px 10px",background:"#FAFAFA",color:"#3B82F6",fontWeight:700,borderBottom:"1px solid #E0E0E0",fontSize:13}}>総点数</td>
+            {sd>0&&(<>
+              {(()=>{const hasDk=items.some(it=>{const ld=it.days[2]||it.days[1]||it.days[0]||0;return !it.isDekidaka&&sd>ld;});return(<>
+              <tr><th scope="row" style={{padding:"8px 10px",background:"#FAFAFA",color:"#404040",fontWeight:700,borderBottom:"1px solid #E0E0E0",fontSize:13,textAlign:"left"}}>
+                総点数{hasDk&&<span style={{fontSize:10,fontWeight:400,color:"#C0392B",marginLeft:4}}>※DPC包括分のみ</span>}
+              </th>
                 {items.map((it,ii)=>{
-                  const t=tots[ii];const maxT=Math.max(...tots.filter(x=>x>0));const minT=Math.min(...tots.filter(x=>x>0));
-                  const best=t===maxT&&t>0&&maxT!==minT;const worst=t===minT&&t>0&&maxT!==minT;
-                  return(<td key={ii} style={{padding:"8px 10px",borderBottom:"1px solid #E0E0E0",color:it.isDekidaka?"#EF4444":best?"#3B82F6":worst?"#EF4444":"#404040",fontWeight:700,fontFamily:M,fontSize:16,background:best?"rgba(59,130,246,.06)":worst?"rgba(239,68,68,.06)":"#FAFAFA"}}>{it.isDekidaka?"出来高":(t?t.toLocaleString():"-")}</td>);
+                  const t=tots[ii];const c=colors[ii];const isHL=c===CLR_HIGH||c===CLR_LOW;
+                  const ld=it.days[2]||it.days[1]||it.days[0]||0;
+                  const isOver=!it.isDekidaka&&sd>ld;
+                  return(<td key={ii} style={{padding:"8px 10px",borderBottom:"1px solid #E0E0E0",color:it.isDekidaka?"#C0392B":isHL?c:"#737373",fontWeight:700,fontFamily:M,fontSize:16,background:isHL?`${c}0F`:"#FAFAFA"}}>
+                    {it.isDekidaka?"出来高":(t?t.toLocaleString():"-")}
+                    {c===CLR_HIGH&&!it.isDekidaka&&<span style={{fontSize:10,fontWeight:400,marginLeft:4}}>（最高）</span>}
+                    {c===CLR_LOW&&!it.isDekidaka&&<span style={{fontSize:10,fontWeight:400,marginLeft:4}}>（最低）</span>}
+                    {isOver&&<span style={{display:"block",fontSize:10,fontWeight:400,color:"#C0392B",marginTop:2}}>+出来高{sd-ld}日分</span>}
+                  </td>);
                 })}</tr>
-            )}
+              {hasDk&&(
+                <tr><th scope="row" style={{padding:"6px 10px",background:"#FAFAFA",color:"#C0392B",fontWeight:600,borderBottom:"1px solid #E0E0E0",fontSize:12,textAlign:"left"}}>出来高日数</th>
+                  {items.map((it,ii)=>{
+                    const ld=it.days[2]||it.days[1]||it.days[0]||0;
+                    const over=it.isDekidaka?0:Math.max(0,sd-ld);
+                    return(<td key={ii} style={{padding:"6px 10px",borderBottom:"1px solid #E0E0E0",color:over>0?"#C0392B":"#737373",fontWeight:over>0?700:400,fontFamily:M,fontSize:13,background:over>0?"rgba(192,57,43,.04)":"transparent"}}>{over>0?`${over}日（${ld+1}〜${sd}日）`:"-"}</td>);
+                  })}</tr>
+              )}
+              </>);})()}
+            </>)}
           </tbody>
         </table>
       </div>

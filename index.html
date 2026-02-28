@@ -13,12 +13,22 @@
     ::-webkit-scrollbar { width: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: #D4D4D4; border-radius: 3px; }
+    button:focus-visible, input:focus-visible, select:focus-visible, [role="button"]:focus-visible, a:focus-visible {
+      outline: 2px solid #3B82F6; outline-offset: 2px;
+    }
+    .skip-link {
+      position: absolute; left: -9999px; top: auto; width: 1px; height: 1px; overflow: hidden;
+      z-index: 9999; background: #262626; color: #fff; padding: 8px 16px; font-size: 14px;
+      border-radius: 0 0 8px 0; text-decoration: none;
+    }
+    .skip-link:focus { left: 0; top: 0; width: auto; height: auto; }
     @media (prefers-reduced-motion: reduce) {
       *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
     }
   </style>
 </head>
 <body>
+  <a href="#main-content" class="skip-link">メインコンテンツへスキップ</a>
   <div id="root"></div>
   <script type="module" src="/src/main.jsx"></script>
 </body>

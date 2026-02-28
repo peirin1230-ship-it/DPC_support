@@ -126,6 +126,58 @@ export function getExpandedResults(baseResults){
   return expanded;
 }
 
+export function expandForSuggest(baseResults){
+  const cv36=v=>parseInt(v,36)||0;
+  // Per-cls, find maximum matched surgVal
+  // DPC convention: lower surgVal = higher priority (01=most complex, 97=手術なし)
+  // Keep DPCs with surgVal <= max (= same or higher priority than matched)
+  const clsMax=new Map();
+  for(const r of baseResults){
+    const sc=cv36(r.surgVal);
+    const ex=clsMax.get(r.cls);
+    if(ex===undefined||sc>ex)clsMax.set(r.cls,sc);
+  }
+  // Per-cls, find min matched p1Val/p2Val (only non-zero)
+  // For p1/p2: higher corrVal = higher priority (more specific procedure)
+  // So keep corrVal >= min (same or higher priority)
+  // If base results include "0" for a cls, that cls is NOT constrained
+  const minP1=new Map(),minP2=new Map();
+  const p1HasZero=new Set(),p2HasZero=new Set();
+  for(const r of baseResults){
+    if(r.hasP1Branch){
+      if(r.p1Val==="0")p1HasZero.add(r.cls);
+      else{const v=cv36(r.p1Val);const ex=minP1.get(r.cls);if(ex===undefined||v<ex)minP1.set(r.cls,v);}
+    }
+    if(r.hasP2Branch){
+      if(r.p2Val==="0")p2HasZero.add(r.cls);
+      else{const v=cv36(r.p2Val);const ex=minP2.get(r.cls);if(ex===undefined||v<ex)minP2.set(r.cls,v);}
+    }
+  }
+  for(const cls of p1HasZero)minP1.delete(cls);
+  for(const cls of p2HasZero)minP2.delete(cls);
+  const expanded=[];
+  for(const[dpc,info]of Object.entries(D.dpc)){
+    const cls=info[0]+info[1];
+    const maxSurg=clsMax.get(cls);
+    if(maxSurg===undefined)continue;
+    const sv=info[3];const surgCv=cv36(sv);
+    if(surgCv>maxSurg)continue;// Only keep <= matched (higher or equal priority)
+    const dk=info[2]==="0"||info[2]===0;
+    expanded.push({
+      code:dpc,cls,clsName:D.cls[cls]||"",
+      surgeryName:getLabel(cls,"o",sv),
+      proc1Name:hasBranch(cls,sv,"1")?getLabel(cls,"1",info[4]):"-",
+      proc2Name:hasBranch(cls,sv,"2")?getLabel(cls,"2",info[5]):"-",
+      subdiagName:hasBranch(cls,sv,"s")?getLabel(cls,"s",info[6]):"-",
+      surgVal:sv,p1Val:info[4],p2Val:info[5],sdVal:info[6],
+      hasP1Branch:hasBranch(cls,sv,"1"),hasP2Branch:hasBranch(cls,sv,"2"),
+      severity:getSevInfo(cls,dpc),condLabel:getCondLabel(cls,dpc),
+      days:[info[7],info[8],info[9]],points:[info[10],info[11],info[12]],isDekidaka:dk
+    });
+  }
+  return{expanded,minP1,minP2};
+}
+
 export function filterDrillDown(expandedDPCs,drillP1,drillP2){
   return expandedDPCs.filter(r=>{
     if(drillP1){
@@ -234,4 +286,117 @@ export function buildResultFromCode(code){
     severity:getSevInfo(cls,code),condLabel:getCondLabel(cls,code),
     days:[info[7],info[8],info[9]],points:[info[10],info[11],info[12]],isDekidaka:dk
   };
+}
+
+/* ── Suggest Mode utilities ── */
+
+export function getSurgeryOptionsFromResults(expandedDPCs){
+  const groups=new Map();const clsSeen=new Map();
+  for(const r of expandedDPCs){
+    if(r.isDekidaka)continue;
+    const gKey=`${r.surgVal}::${r.surgeryName||"なし"}`;
+    const g=groups.get(gKey);
+    if(!g){groups.set(gKey,{surgVal:gKey,rawVal:r.surgVal,label:r.surgeryName||"なし",maxPts:r.points[0]||0});clsSeen.set(gKey,new Set([r.cls]));}
+    else{if((r.points[0]||0)>g.maxPts)g.maxPts=r.points[0]||0;clsSeen.get(gKey).add(r.cls);}
+  }
+  for(const[gKey,g]of groups){
+    const allCodes=new Set();
+    const clsSet=clsSeen.get(gKey);
+    for(const cls of clsSet){const si=D.si?.[cls];if(!si)continue;const idx=si[g.rawVal];if(idx===undefined)continue;const sl=D.sl[idx];if(sl)sl.forEach(c=>allCodes.add(c));}
+    g.codes=[...allCodes].map(c=>({code:c,name:D.cn[c]||""}));
+    g.clsNames=[...clsSet].map(c=>D.cls[c]||c);
+    // D.lb labels are truncated at 20 chars — use full name from codes when detected
+    if(g.label.length>=20&&g.codes.length>0){
+      g.label=g.codes[0].name||g.label;
+      if(g.codes.length>1)g.label+="等";
+    }
+  }
+  const cv36=v=>parseInt(v,36)||0;
+  return[...groups.values()].sort((a,b)=>cv36(a.rawVal)-cv36(b.rawVal));
+}
+
+export function getP1OptionsFromResults(filteredDPCs){
+  const hasBr=filteredDPCs.some(r=>r.hasP1Branch);
+  if(!hasBr)return null;
+  const groups=new Map();const clsSeen=new Map();
+  for(const r of filteredDPCs){
+    if(r.isDekidaka||!r.hasP1Branch)continue;
+    const gKey=`${r.p1Val}::${r.proc1Name||"なし"}`;
+    const g=groups.get(gKey);
+    if(!g){groups.set(gKey,{p1Val:gKey,rawVal:r.p1Val,label:r.proc1Name||"なし",maxPts:r.points[0]||0});clsSeen.set(gKey,new Set([r.cls]));}
+    else{if((r.points[0]||0)>g.maxPts)g.maxPts=r.points[0]||0;clsSeen.get(gKey).add(r.cls);}
+  }
+  for(const[gKey,g]of groups){
+    const allCodes=new Set();
+    const clsSet=clsSeen.get(gKey);
+    for(const cls of clsSet){const p1=D.p1?.[cls];if(!p1||!p1[g.rawVal])continue;p1[g.rawVal].forEach(c=>allCodes.add(c));}
+    g.codes=[...allCodes].map(c=>({code:c,name:D.cn[c]||""}));
+    g.clsNames=[...clsSet].map(c=>D.cls[c]||c);
+  }
+  const cv36p=v=>parseInt(v,36)||0;
+  return[...groups.values()].sort((a,b)=>{if(a.rawVal==="0")return 1;if(b.rawVal==="0")return -1;return cv36p(b.rawVal)-cv36p(a.rawVal);});
+}
+
+export function getP2OptionsFromResults(filteredDPCs){
+  const hasBr=filteredDPCs.some(r=>r.hasP2Branch);
+  if(!hasBr)return null;
+  const groups=new Map();const clsSeen=new Map();
+  for(const r of filteredDPCs){
+    if(r.isDekidaka||!r.hasP2Branch)continue;
+    const gKey=`${r.p2Val}::${r.proc2Name||"なし"}`;
+    const g=groups.get(gKey);
+    if(!g){groups.set(gKey,{p2Val:gKey,rawVal:r.p2Val,label:r.proc2Name||"なし",maxPts:r.points[0]||0});clsSeen.set(gKey,new Set([r.cls]));}
+    else{if((r.points[0]||0)>g.maxPts)g.maxPts=r.points[0]||0;clsSeen.get(gKey).add(r.cls);}
+  }
+  for(const[gKey,g]of groups){
+    const allCodes=new Set();
+    const clsSet=clsSeen.get(gKey);
+    for(const cls of clsSet){const p2=D.p2?.[cls];if(!p2||!p2[g.rawVal])continue;p2[g.rawVal].forEach(c=>allCodes.add(c));}
+    g.codes=[...allCodes].map(c=>{const al=D.da?.[c]?.[0]||"";return{code:c,name:al||D.cn[c]||""};});
+    g.clsNames=[...clsSet].map(c=>D.cls[c]||c);
+  }
+  const cv36p=v=>parseInt(v,36)||0;
+  return[...groups.values()].sort((a,b)=>{if(a.rawVal==="0")return 1;if(b.rawVal==="0")return -1;return cv36p(b.rawVal)-cv36p(a.rawVal);});
+}
+
+export function getSubdiagOptionsFromResults(filteredDPCs){
+  const hasBr=filteredDPCs.some(r=>r.subdiagName&&r.subdiagName!=="-");
+  if(!hasBr)return null;
+  const groups=new Map();
+  for(const r of filteredDPCs){
+    if(r.isDekidaka||!r.subdiagName||r.subdiagName==="-")continue;
+    const g=groups.get(r.sdVal);
+    if(!g){
+      const icds=getSubdiagICDs(r.cls,r.sdVal);
+      groups.set(r.sdVal,{sdVal:r.sdVal,label:r.subdiagName||"なし",maxPts:r.points[0]||0,icds});
+    }else if((r.points[0]||0)>g.maxPts)g.maxPts=r.points[0]||0;
+  }
+  const cv36p=v=>parseInt(v,36)||0;
+  return[...groups.values()].sort((a,b)=>{if(a.sdVal==="0"||a.sdVal===0)return 1;if(b.sdVal==="0"||b.sdVal===0)return -1;return cv36p(b.sdVal)-cv36p(a.sdVal);});
+}
+
+export function getSeverityOptionsFromResults(filteredDPCs){
+  const hasSev=filteredDPCs.some(r=>r.severity);
+  if(!hasSev)return null;
+  const groups=new Map();
+  for(const r of filteredDPCs){
+    if(r.isDekidaka||!r.severity)continue;
+    const key=r.severity.value;
+    const g=groups.get(key);
+    if(!g)groups.set(key,{sevVal:key,name:r.severity.name,label:r.severity.label,maxPts:r.points[0]||0});
+    else if((r.points[0]||0)>g.maxPts)g.maxPts=r.points[0]||0;
+  }
+  return[...groups.values()].sort((a,b)=>(parseInt(a.sevVal)||0)-(parseInt(b.sevVal)||0));
+}
+
+export function getIcdCandidates(dpcResults){
+  const seen=new Set();const out=[];
+  for(const r of dpcResults){
+    const codes=D.icd[r.cls];if(!codes)continue;
+    for(const c of codes){
+      if(seen.has(c))continue;seen.add(c);
+      out.push({code:c,name:cleanName(D.icn[c]||""),cls:r.cls,clsName:r.clsName});
+    }
+  }
+  return out;
 }

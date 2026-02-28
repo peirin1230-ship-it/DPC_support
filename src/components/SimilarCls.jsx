@@ -17,10 +17,10 @@ export default function SimilarCls({ cls, onSearch }) {
       {open && (
         <div style={{ marginTop: 6, background: "#FAFAFA", borderRadius: 6, padding: 8, maxHeight: 240, overflow: "auto" }}>
           {items.map((it, i) => (
-            <div key={i}
+            <button key={i}
               onClick={() => onSearch && onSearch(it.cls)}
               style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 8px", borderRadius: 4,
-                cursor: onSearch ? "pointer" : "default", marginBottom: 2, border: "1px solid transparent", transition: "background .15s, border-color .15s" }}
+                cursor: onSearch ? "pointer" : "default", marginBottom: 2, border: "1px solid transparent", transition: "background .15s, border-color .15s", width: "100%", textAlign: "left", background: "transparent", fontSize: "inherit" }}
               onMouseEnter={e => { if (onSearch) { e.currentTarget.style.background = "#F5F5F5"; e.currentTarget.style.borderColor = "#E0E0E0"; } }}
               onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
               <span style={{ color: "#3B82F6", fontFamily: M, fontSize: 12, fontWeight: 600, flexShrink: 0, minWidth: 50 }}>{it.cls}</span>
@@ -33,7 +33,7 @@ export default function SimilarCls({ cls, onSearch }) {
                   <span>最大{it.maxD3}日</span>
                 </div>
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}

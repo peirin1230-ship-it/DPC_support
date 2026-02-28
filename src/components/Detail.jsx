@@ -27,8 +27,8 @@ export default function Detail({r,onClose,sd,onSearchCls}){
             <div style={{color:"#737373",fontSize:14}}>{r.clsName}</div>
             {r.condLabel&&<div style={{color:"#F59E0B",fontSize:13,marginTop:2}}>{r.condLabel}</div>}
           </div>
-          <button onClick={onClose} aria-label="閉じる" style={{background:"#F5F5F5",border:"none",color:"#737373",cursor:"pointer",width:32,height:32,borderRadius:6,fontSize:14,flexShrink:0,transition:"background .15s"}}
-              onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}>✕</button>
+          <button onClick={onClose} aria-label="閉じる" style={{background:"#F5F5F5",border:"none",color:"#737373",cursor:"pointer",width:40,height:40,borderRadius:8,flexShrink:0,transition:"background .15s",display:"flex",alignItems:"center",justifyContent:"center"}}
+              onMouseEnter={e=>e.currentTarget.style.background="#E8E8E8"} onMouseLeave={e=>e.currentTarget.style.background="#F5F5F5"}><svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="12" y2="12"/><line x1="12" y1="2" x2="2" y2="12"/></svg></button>
         </div>
         {!r.isDekidaka?(
           <div style={{padding:"16px 20px",borderBottom:"1px solid #E0E0E0"}}>
@@ -44,6 +44,7 @@ export default function Detail({r,onClose,sd,onSearchCls}){
             {tot&&(<div style={{background:"#FAFAFA",borderRadius:8,padding:12,textAlign:"center",marginTop:10}}>
               <div style={{color:"#737373",fontSize:12}}>{sd}日入院の総点数{tot.overDays>0?<span style={{color:"#EF4444"}}> （うち{tot.overDays}日は出来高）</span>:""}</div>
               <div style={{fontFamily:M,fontWeight:800,color:"#F59E0B",fontSize:28}}>{tot.total.toLocaleString()}<span style={{fontSize:13,color:"#737373",fontWeight:400}}>点</span></div>
+              {tot.overDays>0&&<div style={{color:"#C0392B",fontSize:11,marginTop:4}}>※上記はDPC包括分のみの点数です（出来高{tot.overDays}日分は含まれていません）</div>}
             </div>)}
             <button onClick={()=>setShowChart(true)} style={{width:"100%",marginTop:8,padding:"8px 0",background:"#FAFAFA",border:"1px solid #E0E0E0",borderRadius:6,color:"#3B82F6",cursor:"pointer",fontSize:13,fontWeight:600,transition:"background .15s, border-color .15s"}}
               onMouseEnter={e=>{e.currentTarget.style.background="#F0F0F0";e.currentTarget.style.borderColor="#D4D4D4";}}

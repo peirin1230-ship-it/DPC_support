@@ -20,27 +20,27 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
 
       {/* タブヘッダー */}
       <div role="tablist" style={{ display: "flex", borderBottom: "1px solid #E0E0E0", flexShrink: 0 }}>
-        <button role="tab" aria-selected={tab === "history"} style={tabStyle(tab === "history")} onClick={() => setTab("history")}>
+        <button role="tab" id="hp-tab-history" aria-selected={tab === "history"} aria-controls="hp-panel-history" style={tabStyle(tab === "history")} onClick={() => setTab("history")}>
           履歴（{history.length}）
         </button>
-        <button role="tab" aria-selected={tab === "favorites"} style={tabStyle(tab === "favorites")} onClick={() => setTab("favorites")}>
+        <button role="tab" id="hp-tab-favorites" aria-selected={tab === "favorites"} aria-controls="hp-panel-favorites" style={tabStyle(tab === "favorites")} onClick={() => setTab("favorites")}>
           お気に入り（{favorites.length}）
         </button>
         <button onClick={onClose} aria-label="閉じる" style={{ background: "none", border: "none", color: "#737373",
-          cursor: "pointer", padding: "0 10px", fontSize: 14 }}>✕</button>
+          cursor: "pointer", padding: 8, display: "flex", alignItems: "center", justifyContent: "center" }}><svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg></button>
       </div>
 
       {/* コンテンツ */}
-      <div style={{ flex: 1, overflowY: "auto", padding: 8 }}>
+      <div role="tabpanel" id={tab === "history" ? "hp-panel-history" : "hp-panel-favorites"} aria-labelledby={tab === "history" ? "hp-tab-history" : "hp-tab-favorites"} style={{ flex: 1, overflowY: "auto", padding: 8 }}>
         {tab === "history" ? (
           history.length === 0 ? (
             <div style={{ color: "#737373", fontSize: 13, textAlign: "center", padding: 20 }}>検索履歴はありません</div>
           ) : (
             <>
               {history.map((h, i) => (
-                <div key={i} onClick={() => { onRestoreSearch(h); onClose(); }}
+                <button key={i} onClick={() => { onRestoreSearch(h); onClose(); }}
                   style={{ padding: "6px 8px", borderRadius: 4, cursor: "pointer", marginBottom: 2,
-                    fontSize: 12, color: "#404040", border: "1px solid transparent", transition: "background .15s, border-color .15s" }}
+                    fontSize: 12, color: "#404040", border: "1px solid transparent", transition: "background .15s, border-color .15s", width: "100%", textAlign: "left", background: "transparent", display: "block" }}
                   onMouseEnter={e => { e.currentTarget.style.background = "#F5F5F5"; e.currentTarget.style.borderColor = "#E0E0E0"; }}
                   onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
                   <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -50,7 +50,7 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
                     {h.drug && <span style={{ color: "#EA580C", fontSize: 11 }}>{h.drug}</span>}
                   </div>
                   <div style={{ color: "#737373", fontSize: 10, marginTop: 2 }}>{h.count}件 ─ {h.label}</div>
-                </div>
+                </button>
               ))}
               <button onClick={() => { if(window.confirm("検索履歴をすべて削除しますか？")){clearHistory(); onClose();} }}
                 style={{ width: "100%", marginTop: 4, padding: "6px 0", background: "none",
@@ -70,14 +70,14 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
                   borderRadius: 4, marginBottom: 2, border: "1px solid transparent", transition: "background .15s, border-color .15s" }}
                   onMouseEnter={e => { e.currentTarget.style.background = "#F5F5F5"; e.currentTarget.style.borderColor = "#E0E0E0"; }}
                   onMouseLeave={e => { e.currentTarget.style.background = "transparent"; e.currentTarget.style.borderColor = "transparent"; }}>
-                  <div style={{ flex: 1, cursor: "pointer", minWidth: 0 }}
+                  <button style={{ flex: 1, cursor: "pointer", minWidth: 0, background: "none", border: "none", textAlign: "left", padding: 0 }}
                     onClick={() => { onJumpToCode(f.code); onClose(); }}>
                     <span style={{ color: "#3B82F6", fontFamily: M, fontSize: 13, fontWeight: 600 }}>{f.code}</span>
                     <span style={{ color: "#737373", fontSize: 12, marginLeft: 6 }}>{f.clsName}</span>
                     {f.surgeryName && f.surgeryName !== "なし" && (
                       <span style={{ color: "#737373", fontSize: 11, marginLeft: 4 }}>{f.surgeryName}</span>
                     )}
-                  </div>
+                  </button>
                   {/* 比較リストに追加ボタン */}
                   <button
                     onClick={e => { e.stopPropagation(); onAddToCompare && onAddToCompare(f.code); }}
@@ -87,9 +87,9 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
                       padding: "2px 6px", fontSize: 11, flexShrink: 0, fontWeight: 600 }}>
                     {inCmp ? "比較中" : "+比較"}
                   </button>
-                  <button onClick={() => { removeFavorite(f.code); onClose(); }}
+                  <button onClick={() => { removeFavorite(f.code); onClose(); }} aria-label="お気に入りから削除"
                     style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer",
-                      padding: "2px 4px", fontSize: 13, flexShrink: 0 }}>✕</button>
+                      padding: 6, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg></button>
                 </div>
               );
             })
