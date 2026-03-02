@@ -6,7 +6,7 @@ import useModal from "../useModal";
 import SimChart from "./SimChart";
 import SimilarCls from "./SimilarCls";
 
-export default function Detail({r,onClose,sd,onSearchCls}){
+export default function Detail({r,onClose,sd,onSearchCls,isMobile}){
   const[showChart,setShowChart]=useState(false);
   const modalRef=useModal(onClose);
   if(!r)return null;
@@ -16,8 +16,8 @@ export default function Detail({r,onClose,sd,onSearchCls}){
   const Row=({l,v,c})=>(<div style={{display:"flex",justifyContent:"space-between",padding:"7px 0",borderBottom:"1px solid #E0E0E0"}}><span style={{color:"#737373",fontSize:14}}>{l}</span><span style={{color:c||"#404040",fontSize:14,fontWeight:500,textAlign:"right",maxWidth:"60%"}}>{v}</span></div>);
   const Sec=({title,children})=>{const[o,setO]=useState(false);return(<div style={{marginTop:8}}><button onClick={()=>setO(!o)} aria-expanded={o} style={{display:"flex",alignItems:"center",gap:6,background:"none",border:"none",color:"#737373",cursor:"pointer",fontSize:13,fontWeight:600,padding:0}}><span style={{transform:o?"rotate(90deg)":"none",transition:"transform .15s",display:"inline-block"}}>▸</span>{title}</button>{o&&<div style={{marginTop:6,background:"#FAFAFA",borderRadius:6,padding:8,maxHeight:180,overflow:"auto"}}>{children}</div>}</div>);};
   return(
-    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.3)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:20}} onClick={onClose}>
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`DPC詳細 ${r.code}`} style={{background:"#FFFFFF",borderRadius:12,border:"1px solid #E0E0E0",boxShadow:"0 16px 48px rgba(0,0,0,.12)",maxWidth:"90vw",width:520,maxHeight:"85vh",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.3)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:isMobile?0:20}} onClick={onClose}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`DPC詳細 ${r.code}`} style={{background:"#FFFFFF",borderRadius:isMobile?0:12,border:isMobile?"none":"1px solid #E0E0E0",boxShadow:isMobile?"none":"0 16px 48px rgba(0,0,0,.12)",maxWidth:isMobile?"100vw":"90vw",width:isMobile?"100%":520,maxHeight:isMobile?"100vh":"85vh",height:isMobile?"100vh":"auto",overflow:"auto",padding:0}} onClick={e=>e.stopPropagation()}>
         <div style={{padding:"16px 20px",borderBottom:"1px solid #E0E0E0",display:"flex",justifyContent:"space-between",alignItems:"flex-start"}}>
           <div>
             <div style={{display:"flex",alignItems:"center",gap:8,marginBottom:2}}>
@@ -120,7 +120,7 @@ export default function Detail({r,onClose,sd,onSearchCls}){
           <SimilarCls cls={cls} onSearch={onSearchCls}/>
         </div>
       </div>
-      {showChart&&<SimChart r={r} sd={sd} onClose={()=>setShowChart(false)}/>}
+      {showChart&&<SimChart r={r} sd={sd} onClose={()=>setShowChart(false)} isMobile={isMobile}/>}
     </div>
   );
 }

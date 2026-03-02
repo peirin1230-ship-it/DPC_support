@@ -2,7 +2,7 @@ import { useState } from "react";
 import { M } from "../styles";
 import { getHistory, clearHistory, getFavorites, removeFavorite } from "../storage";
 
-export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, onAddToCompare, cmpSet }) {
+export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, onAddToCompare, cmpSet, isMobile }) {
   const [tab, setTab] = useState("history");
   const history = getHistory();
   const favorites = getFavorites();
@@ -14,7 +14,9 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
   });
 
   return (
-    <div style={{ position: "absolute", top: "100%", left: 0, zIndex: 200, width: 420, maxHeight: 440,
+    <div style={isMobile?{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 200, width: "90vw", maxHeight: "70vh",
+      background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,.16)",
+      display: "flex", flexDirection: "column" }:{ position: "absolute", top: "100%", left: 0, zIndex: 200, width: 420, maxHeight: 440,
       background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,.08)",
       display: "flex", flexDirection: "column", marginTop: 4 }}>
 

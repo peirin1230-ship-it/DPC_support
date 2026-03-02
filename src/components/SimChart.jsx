@@ -28,7 +28,7 @@ export function buildStepPath(days, points, xFn, yFn, y0) {
   return { fill, line, segs };
 }
 
-export default function SimChart({ r, sd, onClose }) {
+export default function SimChart({ r, sd, onClose, isMobile }) {
   const modalRef=useModal(onClose);
   const [d1, d2, d3] = r.days;
   const [p1, p2, p3] = r.points;
@@ -74,10 +74,10 @@ export default function SimChart({ r, sd, onClose }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 1100,
-      display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`${r.code} 点数推移グラフ`} style={{ background: "#FFFFFF", borderRadius: 12, border: "1px solid #E0E0E0",
-        boxShadow: "0 16px 48px rgba(0,0,0,.12)",
-        width: 600, maxWidth: "95vw", maxHeight: "90vh", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+      display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`${r.code} 点数推移グラフ`} style={{ background: "#FFFFFF", borderRadius: isMobile ? 0 : 12, border: isMobile ? "none" : "1px solid #E0E0E0",
+        boxShadow: isMobile ? "none" : "0 16px 48px rgba(0,0,0,.12)",
+        width: isMobile ? "100%" : 600, maxWidth: isMobile ? "100vw" : "95vw", maxHeight: isMobile ? "100vh" : "90vh", height: isMobile ? "100vh" : "auto", overflow: "auto" }} onClick={e => e.stopPropagation()}>
 
         {/* ヘッダー */}
         <div style={{ padding: "12px 20px", borderBottom: "1px solid #E0E0E0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

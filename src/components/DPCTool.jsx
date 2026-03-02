@@ -3,6 +3,7 @@ import { D } from "../data";
 import { F, M } from "../styles";
 import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, findCls, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize } from "../utils";
 import { addHistory, getFavorites, addFavorite, removeFavorite } from "../storage";
+import useIsMobile from "../useIsMobile";
 import AC from "./AC";
 import IcdPanel from "./IcdPanel";
 import CompareModal from "./CompareModal";
@@ -77,7 +78,7 @@ function SgOption({o,valueKey,active,onSelect,highlight}){
   );
 }
 
-function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurgVal,sgP1Val,setSgP1Val,sgP2Val,setSgP2Val,sgSdVal,setSgSdVal,sgSevVal,setSgSevVal,sgMinP1,sgMinP2,sgInputSurg,onDetail,cmpList,toggleCmp}){
+function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurgVal,sgP1Val,setSgP1Val,sgP2Val,setSgP2Val,sgSdVal,setSgSdVal,sgSevVal,setSgSevVal,sgMinP1,sgMinP2,sgInputSurg,onDetail,cmpList,toggleCmp,isMobile}){
   const cv36=v=>parseInt(v,36)||0;
   const[stepQuery,setStepQuery]=useState("");
   // When input surgery was selected on the left, filter to only DPCs where
@@ -328,12 +329,12 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
                         {r.isDekidaka?(
                           <div style={{color:"#EF4444",fontSize:13,fontWeight:600,minWidth:60,textAlign:"center"}}>出来高</div>
                         ):(
-                          <div style={{display:"flex",gap:4}}>
+                          <div style={{display:"flex",gap:isMobile?2:4}}>
                             {r.points.map((p,pi)=>(
-                              <div key={pi} style={{textAlign:"center",minWidth:48,background:pi===0?"rgba(59,130,246,.06)":"transparent",borderRadius:5,padding:"3px 4px"}}>
-                                <div style={{fontSize:10,color:"#737373"}}>{["Ⅰ","Ⅱ","Ⅲ"][pi]}</div>
-                                <div style={{fontFamily:M,fontWeight:pi===0?700:400,color:pi===0?"#3B82F6":"#737373",fontSize:pi===0?16:13}}>{p?p.toLocaleString():"-"}</div>
-                                <div style={{fontSize:9,color:"#8B8B8B"}}>{r.days[pi]||"-"}日</div>
+                              <div key={pi} style={{textAlign:"center",minWidth:isMobile?40:48,background:pi===0?"rgba(59,130,246,.06)":"transparent",borderRadius:5,padding:"3px 4px"}}>
+                                <div style={{fontSize:isMobile?9:10,color:"#737373"}}>{["Ⅰ","Ⅱ","Ⅲ"][pi]}</div>
+                                <div style={{fontFamily:M,fontWeight:pi===0?700:400,color:pi===0?"#3B82F6":"#737373",fontSize:pi===0?(isMobile?14:16):(isMobile?11:13)}}>{p?p.toLocaleString():"-"}</div>
+                                <div style={{fontSize:isMobile?8:9,color:"#8B8B8B"}}>{r.days[pi]||"-"}日</div>
                               </div>
                             ))}
                           </div>
@@ -366,6 +367,8 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
 }
 
 export default function DPCTool(){
+  const isMobile=useIsMobile();
+  const[mobileView,setMobileView]=useState("search");
   const[mode,setMode]=useState("list");
   // Suggest mode state
   const[sgExpanded,setSgExpanded]=useState([]);
@@ -411,6 +414,7 @@ export default function DPCTool(){
     setResults(r);setSearched(true);
     setExpandedDPCs(getExpandedResults(r));
     setDrillP1(null);setDrillP2(null);
+    if(isMobile)setMobileView("results");
     const parts=[];
     if(icd)parts.push(icd);if(selSurg)parts.push(selSurg);if(selProc)parts.push(selProc);if(selDrug)parts.push(selDrug);
     addHistory({key:parts.join("|"),icd:icdIn.trim()||"",surg:surgIn.trim()||"",proc:procIn.trim()||"",drug:drugIn.trim()||"",
@@ -468,19 +472,32 @@ export default function DPCTool(){
     <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#F2F2F2",color:"#404040",fontFamily:F,overflow:"hidden"}}>
 
       {/* Header */}
-      <div style={{background:"#FFFFFF",borderBottom:"1px solid #E0E0E0",padding:"10px 20px",display:"flex",alignItems:"center",gap:12,flexShrink:0}}>
-        <div style={{width:32,height:32,borderRadius:7,background:"#262626",display:"flex",alignItems:"center",justifyContent:"center",fontSize:16,fontWeight:800,color:"#fff"}}>D</div>
+      <div style={{background:"#FFFFFF",borderBottom:"1px solid #E0E0E0",padding:isMobile?"6px 12px":"10px 20px",display:"flex",alignItems:"center",gap:isMobile?8:12,flexShrink:0}}>
+        <div style={{width:isMobile?26:32,height:isMobile?26:32,borderRadius:isMobile?5:7,background:"#262626",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?13:16,fontWeight:800,color:"#fff"}}>D</div>
         <div>
-          <div style={{fontSize:16,fontWeight:800,color:"#262626"}}>DPC検索ツール</div>
-          <div style={{fontSize:10,color:"#737373"}}>令和6年度 DPC電子点数表 ─ {Object.keys(D.dpc).length.toLocaleString()} DPC ・ {Object.keys(D.icn).length.toLocaleString()} ICD-10 ・ 出来高算定手術{Object.keys(D.dk).length}件</div>
+          <div style={{fontSize:isMobile?13:16,fontWeight:800,color:"#262626"}}>DPC検索ツール</div>
+          {!isMobile&&<div style={{fontSize:10,color:"#737373"}}>令和6年度 DPC電子点数表 ─ {Object.keys(D.dpc).length.toLocaleString()} DPC ・ {Object.keys(D.icn).length.toLocaleString()} ICD-10 ・ 出来高算定手術{Object.keys(D.dk).length}件</div>}
         </div>
       </div>
 
-      {/* Main Content - 2 Column Layout */}
+      {/* Mobile Tab Bar */}
+      {isMobile&&(
+        <div style={{display:"flex",borderBottom:"1px solid #E0E0E0",background:"#FFFFFF",flexShrink:0}}>
+          {[["search","検索"],["results","結果"]].map(([k,v])=>(
+            <button key={k} onClick={()=>setMobileView(k)}
+              style={{flex:1,padding:"8px 0",border:"none",borderBottom:mobileView===k?"2px solid #262626":"2px solid transparent",
+                background:mobileView===k?"#FFFFFF":"#F5F5F5",color:mobileView===k?"#262626":"#737373",
+                fontWeight:mobileView===k?700:500,fontSize:13,cursor:"pointer",transition:"all .15s"}}>
+              {v}{k==="results"&&searched?` (${displayedResults.length})`:""}</button>
+          ))}
+        </div>
+      )}
+
+      {/* Main Content - 2 Column Layout (desktop) / Tab switch (mobile) */}
       <div style={{flex:1,display:"flex",overflow:"hidden"}}>
 
         {/* Left Column: Search Zone */}
-        <aside style={{width:320,flexShrink:0,background:"#FFFFFF",borderRight:"1px solid #E0E0E0",overflow:"auto",display:"flex",flexDirection:"column"}}>
+        <aside style={{width:isMobile?"100%":320,flexShrink:0,background:"#FFFFFF",borderRight:isMobile?"none":"1px solid #E0E0E0",overflow:"auto",display:isMobile?(mobileView==="search"?"flex":"none"):"flex",flexDirection:"column"}}>
           {/* Mode tabs */}
           <div role="tablist" style={{display:"flex",borderBottom:"1px solid #E0E0E0",flexShrink:0}}>
             {[["list","一覧検索"],["suggest","最適DPCサジェスト"]].map(([k,v])=>(
@@ -496,10 +513,10 @@ export default function DPCTool(){
 
           {mode==="list"?(
             <div role="tabpanel" id="panel-list" aria-labelledby="tab-list" onKeyDown={e=>{if(e.key==="Enter"&&e.target.tagName!=="SELECT"){e.preventDefault();doSearch();}}} style={{padding:"16px 20px",display:"flex",flexDirection:"column",gap:12,flex:1}}>
-              <AC label="ICD-10（病名）" value={icdIn} onChange={v=>{setIcdIn(v);setSelIcd("");}} onSelect={r=>{setIcdIn(`${r.code} ${r.name}`);setSelIcd(r.code);}} searchFn={searchDisease} placeholder="例: 肺炎, I510..." />
-              <AC label="手術（Kコード）" value={surgIn} onChange={v=>{setSurgIn(v);setSelSurg("");}} onSelect={r=>{setSurgIn(`${r.code} ${r.name}`);setSelSurg(r.code);}} searchFn={searchSurg} placeholder="例: K549..." />
-              <AC label="手術・処置等" value={procIn} onChange={v=>{setProcIn(v);setSelProc("");}} onSelect={r=>{setProcIn(`${r.code} ${r.name}`);setSelProc(r.code);}} searchFn={searchProc} placeholder="例: SPECT, E101..." showTag />
-              <AC label="薬剤検索" value={drugIn} onChange={v=>{setDrugIn(v);setSelDrug("");}} onSelect={r=>{setDrugIn(`${r.code} ${r.name}`);setSelDrug(r.code);}} searchFn={searchDrug} placeholder="例: リコモジュリン..." />
+              <AC label="ICD-10（病名）" value={icdIn} onChange={v=>{setIcdIn(v);setSelIcd("");}} onSelect={r=>{setIcdIn(`${r.code} ${r.name}`);setSelIcd(r.code);}} searchFn={searchDisease} placeholder="例: 肺炎, I510..." isMobile={isMobile} />
+              <AC label="手術（Kコード）" value={surgIn} onChange={v=>{setSurgIn(v);setSelSurg("");}} onSelect={r=>{setSurgIn(`${r.code} ${r.name}`);setSelSurg(r.code);}} searchFn={searchSurg} placeholder="例: K549..." isMobile={isMobile} />
+              <AC label="手術・処置等" value={procIn} onChange={v=>{setProcIn(v);setSelProc("");}} onSelect={r=>{setProcIn(`${r.code} ${r.name}`);setSelProc(r.code);}} searchFn={searchProc} placeholder="例: SPECT, E101..." showTag isMobile={isMobile} />
+              <AC label="薬剤検索" value={drugIn} onChange={v=>{setDrugIn(v);setSelDrug("");}} onSelect={r=>{setDrugIn(`${r.code} ${r.name}`);setSelDrug(r.code);}} searchFn={searchDrug} placeholder="例: リコモジュリン..." isMobile={isMobile} />
 
               <div style={{display:"flex",flexDirection:"column",gap:8}}>
                 <div>
@@ -545,7 +562,7 @@ export default function DPCTool(){
         </aside>
 
         {/* Right Column: Results Zone */}
-        <main id="main-content" style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+        <main id="main-content" style={{flex:1,display:isMobile?(mobileView==="results"?"flex":"none"):"flex",flexDirection:"column",overflow:"hidden"}}>
          {mode==="list"?(<>
           {/* DrillDown + Toolbar */}
           <div style={{padding:"12px 20px",flexShrink:0}}>
@@ -559,7 +576,7 @@ export default function DPCTool(){
               {results.length>0&&<button onClick={()=>setShowIcd(true)} style={{padding:"6px 12px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s, border-color .15s"}}>ICD-10一覧</button>}
               <div style={{position:"relative"}}>
                 <button onClick={()=>setShowHistory(v=>!v)} style={{padding:"6px 12px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s, border-color .15s"}}>履歴</button>
-                {showHistory&&<HistoryPanel onClose={()=>setShowHistory(false)} onRestoreSearch={restoreSearch} onJumpToCode={jumpToCode}
+                {showHistory&&<HistoryPanel onClose={()=>setShowHistory(false)} onRestoreSearch={restoreSearch} onJumpToCode={jumpToCode} isMobile={isMobile}
                   cmpSet={new Set(cmpList.map(x=>x.code))}
                   onAddToCompare={code=>{
                     const r=buildResultFromCode(code);if(!r)return;
@@ -613,14 +630,14 @@ export default function DPCTool(){
                             </div>
                           )}
                           {r.isDekidaka?(
-                            <div style={{color:"#EF4444",fontSize:13,fontWeight:600,minWidth:60,textAlign:"center"}}>出来高</div>
+                            <div style={{color:"#EF4444",fontSize:13,fontWeight:600,minWidth:isMobile?40:60,textAlign:"center"}}>出来高</div>
                           ):(
-                            <div style={{display:"flex",gap:4}}>
+                            <div style={{display:"flex",gap:isMobile?2:4}}>
                               {r.points.map((p,pi)=>(
-                                <div key={pi} style={{textAlign:"center",minWidth:48,background:pi===0?"rgba(59,130,246,.06)":"transparent",borderRadius:5,padding:"3px 4px"}}>
-                                  <div style={{fontSize:10,color:"#737373"}}>{["Ⅰ","Ⅱ","Ⅲ"][pi]}</div>
-                                  <div style={{fontFamily:M,fontWeight:pi===0?700:400,color:pi===0?"#3B82F6":"#737373",fontSize:pi===0?16:13}}>{p?p.toLocaleString():"-"}</div>
-                                  <div style={{fontSize:9,color:"#8B8B8B"}}>{r.days[pi]||"-"}日</div>
+                                <div key={pi} style={{textAlign:"center",minWidth:isMobile?40:48,background:pi===0?"rgba(59,130,246,.06)":"transparent",borderRadius:5,padding:"3px 4px"}}>
+                                  <div style={{fontSize:isMobile?9:10,color:"#737373"}}>{["Ⅰ","Ⅱ","Ⅲ"][pi]}</div>
+                                  <div style={{fontFamily:M,fontWeight:pi===0?700:400,color:pi===0?"#3B82F6":"#737373",fontSize:pi===0?(isMobile?14:16):(isMobile?11:13)}}>{p?p.toLocaleString():"-"}</div>
+                                  <div style={{fontSize:isMobile?8:9,color:"#8B8B8B"}}>{r.days[pi]||"-"}日</div>
                                 </div>
                               ))}
                             </div>
@@ -657,6 +674,7 @@ export default function DPCTool(){
             sgInputSurg={sgInputSurg}
             onDetail={setDetail}
             cmpList={cmpList} toggleCmp={toggleCmp}
+            isMobile={isMobile}
           />
          )}
         </main>
@@ -664,7 +682,7 @@ export default function DPCTool(){
 
       {/* Compare Zone - Bottom */}
       {cmpList.length>0&&(
-        <div style={{background:"#FFFFFF",borderTop:"1px solid #E0E0E0",padding:"12px 20px",flexShrink:0}}>
+        <div style={{background:"#FFFFFF",borderTop:"1px solid #E0E0E0",padding:isMobile?"8px 12px":"12px 20px",flexShrink:0}}>
           {cmpErr&&<div role="alert" style={{background:"rgba(192,57,43,.08)",border:"1px solid rgba(192,57,43,.2)",borderRadius:6,padding:"6px 12px",marginBottom:8,color:"#C0392B",fontSize:12,fontWeight:500}}>{cmpErr}</div>}
           <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
             <span style={{fontSize:13,color:"#262626",fontWeight:600}}>比較ゾーン（{cmpList.length}/4）</span>
@@ -673,7 +691,7 @@ export default function DPCTool(){
               <button onClick={()=>setCmpList([])} style={{padding:"6px 12px",background:"#F2F2F2",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,flexShrink:0}}>クリア</button>
             </div>
           </div>
-          <div style={{display:"grid",gridTemplateColumns:"repeat(4, 1fr)",gap:10}}>
+          <div style={{display:"grid",gridTemplateColumns:isMobile?"repeat(2, 1fr)":"repeat(4, 1fr)",gap:isMobile?6:10}}>
             {[0,1,2,3].map(i=>{
               const r=cmpList[i];
               return r?(
@@ -693,8 +711,8 @@ export default function DPCTool(){
         </div>
       )}
 
-      {showCmp&&<CompareModal items={cmpList} onClose={()=>setShowCmp(false)} sd={mode==="suggest"?sgStayDays:sd}/>}
-      {detail&&<Detail r={detail} onClose={()=>setDetail(null)} sd={mode==="suggest"?sgStayDays:sd} onSearchCls={targetCls=>{
+      {showCmp&&<CompareModal items={cmpList} onClose={()=>setShowCmp(false)} sd={mode==="suggest"?sgStayDays:sd} isMobile={isMobile}/>}
+      {detail&&<Detail r={detail} onClose={()=>setDetail(null)} sd={mode==="suggest"?sgStayDays:sd} isMobile={isMobile} onSearchCls={targetCls=>{
         const icds=D.icd[targetCls];if(!icds||!icds.length)return;
         const icd=icds[0];
         setIcdIn(`${icd} ${D.icn[icd]||""}`);setSelIcd(icd);
@@ -707,7 +725,7 @@ export default function DPCTool(){
             selIcd:icd,selSurg:"",selProc:"",selDrug:"",count:r2.length,label:icd});
         },0);
       }}/>}
-      {showIcd&&<IcdPanel results={results} onClose={()=>setShowIcd(false)}/>}
+      {showIcd&&<IcdPanel results={results} onClose={()=>setShowIcd(false)} isMobile={isMobile}/>}
     </div>
   );
 }
