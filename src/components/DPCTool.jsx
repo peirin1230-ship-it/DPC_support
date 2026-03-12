@@ -326,22 +326,21 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
   );
 }
 
+const mkSgTab=()=>({expanded:[],stayDays:0,searched:false,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:""});
+
 export default function DPCTool(){
   const isMobile=useIsMobile();
   const[mobileView,setMobileView]=useState("search");
   const[mode,setMode]=useState("list");
-  // Suggest mode state
-  const[sgExpanded,setSgExpanded]=useState([]);
-  const[sgStayDays,setSgStayDays]=useState(0);
-  const[sgSearched,setSgSearched]=useState(false);
-  const[sgSurgVal,setSgSurgVal]=useState(null);
-  const[sgP1Val,setSgP1Val]=useState(null);
-  const[sgP2Val,setSgP2Val]=useState(null);
-  const[sgSdVal,setSgSdVal]=useState(null);
-  const[sgSevVal,setSgSevVal]=useState(null);
-  const[sgInputSurg,setSgInputSurg]=useState("");
-  const handleSgSearch=useCallback((exp,sd,inputSurg)=>{setSgExpanded(exp);setSgStayDays(sd);setSgSearched(true);setSgSurgVal(null);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);setSgInputSurg(inputSurg||"");},[]);
-  const handleSgReset=useCallback(()=>{setSgExpanded([]);setSgStayDays(0);setSgSearched(false);setSgSurgVal(null);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);setSgInputSurg("");},[]);
+  // Suggest mode state — 2 independent tabs
+  const[sgTabIdx,setSgTabIdx]=useState(0);
+  const[sgTabs,setSgTabs]=useState([mkSgTab(),mkSgTab()]);
+  const sg=sgTabs[sgTabIdx];
+  const setSg=fn=>setSgTabs(prev=>{const next=[...prev];next[sgTabIdx]=typeof fn==="function"?fn(next[sgTabIdx]):{...next[sgTabIdx],...fn};return next;});
+  const mkSgSearchCb=i=>(exp,sd,inputSurg)=>{setSgTabs(prev=>{const next=[...prev];next[i]={expanded:exp,stayDays:sd,searched:true,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:inputSurg||""};return next;});};
+  const mkSgResetCb=i=>()=>{setSgTabs(prev=>{const next=[...prev];next[i]=mkSgTab();return next;});};
+  const sgSearchCb0=useCallback(mkSgSearchCb(0),[]);const sgSearchCb1=useCallback(mkSgSearchCb(1),[]);
+  const sgResetCb0=useCallback(mkSgResetCb(0),[]);const sgResetCb1=useCallback(mkSgResetCb(1),[]);
   const[icdIn,setIcdIn]=useState("");const[selIcd,setSelIcd]=useState("");
   const[surgIn,setSurgIn]=useState("");const[selSurg,setSelSurg]=useState("");
   const[procIn,setProcIn]=useState("");const[selProc,setSelProc]=useState("");
@@ -520,8 +519,23 @@ export default function DPCTool(){
               </div>
             </div>
           ):(
-            <div role="tabpanel" id="panel-suggest" aria-labelledby="tab-suggest" style={{padding:"16px 20px",flex:1}}>
-              <SuggestWizard onSearch={handleSgSearch} onReset={handleSgReset} />
+            <div role="tabpanel" id="panel-suggest" aria-labelledby="tab-suggest" style={{display:"flex",flexDirection:"column",flex:1}}>
+              <div style={{display:"flex",borderBottom:"1px solid #E0E0E0",flexShrink:0}}>
+                {[0,1].map(i=>(
+                  <button key={i} onClick={()=>setSgTabIdx(i)}
+                    style={{flex:1,padding:"6px 0",border:"none",borderBottom:sgTabIdx===i?"2px solid #6366F1":"2px solid transparent",
+                      background:sgTabIdx===i?"#FFFFFF":"#F5F5F5",color:sgTabIdx===i?"#6366F1":"#A3A3A3",
+                      fontWeight:sgTabIdx===i?700:500,fontSize:11,cursor:"pointer",transition:"all .15s"}}>
+                    検索{i+1}{sgTabs[i].searched?" ●":""}
+                  </button>
+                ))}
+              </div>
+              <div style={{padding:"16px 20px",flex:1,display:sgTabIdx===0?"block":"none",overflow:"auto"}}>
+                <SuggestWizard onSearch={sgSearchCb0} onReset={sgResetCb0} />
+              </div>
+              <div style={{padding:"16px 20px",flex:1,display:sgTabIdx===1?"block":"none",overflow:"auto"}}>
+                <SuggestWizard onSearch={sgSearchCb1} onReset={sgResetCb1} />
+              </div>
             </div>
           )}
         </aside>
@@ -664,13 +678,13 @@ export default function DPCTool(){
             ):null}
           </div>
          </>):(<SuggestRightPanel
-            sgExpanded={sgExpanded} sgStayDays={sgStayDays} sgSearched={sgSearched}
-            sgSurgVal={sgSurgVal} setSgSurgVal={v=>{setSgSurgVal(v);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);}}
-            sgP1Val={sgP1Val} setSgP1Val={v=>{setSgP1Val(v);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);}}
-            sgP2Val={sgP2Val} setSgP2Val={v=>{setSgP2Val(v);setSgSdVal(null);setSgSevVal(null);}}
-            sgSdVal={sgSdVal} setSgSdVal={v=>{setSgSdVal(v);setSgSevVal(null);}}
-            sgSevVal={sgSevVal} setSgSevVal={setSgSevVal}
-            sgInputSurg={sgInputSurg}
+            sgExpanded={sg.expanded} sgStayDays={sg.stayDays} sgSearched={sg.searched}
+            sgSurgVal={sg.surgVal} setSgSurgVal={v=>setSg(t=>({...t,surgVal:v,p1Val:null,p2Val:null,sdVal:null,sevVal:null}))}
+            sgP1Val={sg.p1Val} setSgP1Val={v=>setSg(t=>({...t,p1Val:v,p2Val:null,sdVal:null,sevVal:null}))}
+            sgP2Val={sg.p2Val} setSgP2Val={v=>setSg(t=>({...t,p2Val:v,sdVal:null,sevVal:null}))}
+            sgSdVal={sg.sdVal} setSgSdVal={v=>setSg(t=>({...t,sdVal:v,sevVal:null}))}
+            sgSevVal={sg.sevVal} setSgSevVal={v=>setSg(t=>({...t,sevVal:v}))}
+            sgInputSurg={sg.inputSurg}
             onDetail={setDetail}
             cmpList={cmpList} toggleCmp={toggleCmp}
             isMobile={isMobile}
@@ -712,8 +726,8 @@ export default function DPCTool(){
         </div>
       )}
 
-      {showCmp&&<CompareModal items={cmpList} onClose={()=>setShowCmp(false)} sd={mode==="suggest"?sgStayDays:sd} isMobile={isMobile}/>}
-      {detail&&<Detail r={detail} onClose={()=>setDetail(null)} sd={mode==="suggest"?sgStayDays:sd} isMobile={isMobile} onSearchCls={targetCls=>{
+      {showCmp&&<CompareModal items={cmpList} onClose={()=>setShowCmp(false)} sd={mode==="suggest"?sg.stayDays:sd} isMobile={isMobile}/>}
+      {detail&&<Detail r={detail} onClose={()=>setDetail(null)} sd={mode==="suggest"?sg.stayDays:sd} isMobile={isMobile} onSearchCls={targetCls=>{
         const icds=D.icd[targetCls];if(!icds||!icds.length)return;
         const icd=icds[0];
         setIcdIn(`${icd} ${D.icn[icd]||""}`);setSelIcd(icd);
