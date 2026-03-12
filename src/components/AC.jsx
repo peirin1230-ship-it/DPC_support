@@ -21,7 +21,7 @@ export default function AC({label,value,onChange,onSelect,searchFn,placeholder,s
         onFocus={e=>{e.target.style.borderColor="#404040";e.target.style.boxShadow="0 0 0 3px rgba(64,64,64,.1)";if(value&&res.length)setOpen(true);}}
         onBlur={e=>{setTimeout(()=>{e.target.style.borderColor="#E0E0E0";e.target.style.boxShadow="none";},120);}}
         onKeyDown={handleKey}
-        placeholder={placeholder}
+        placeholder={placeholder} autoComplete="off"
         role="combobox" aria-expanded={open&&res.length>0} aria-autocomplete="list" aria-controls={listId} aria-activedescendant={hi>=0?`ac-opt${uid}-${hi}`:undefined}
         style={{width:"100%",padding:"8px 10px",border:"1.5px solid #E0E0E0",borderRadius:6,background:"#FFFFFF",color:"#404040",fontSize:14,outline:"none",boxSizing:"border-box",transition:"border-color .15s, box-shadow .15s"}} />
       {open&&res.length>0&&(

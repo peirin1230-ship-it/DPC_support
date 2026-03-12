@@ -1,5 +1,7 @@
 import { useState, useCallback } from "react";
-import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findCls } from "../utils";
+import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findCls, getNoResultHints } from "../utils";
+import { D } from "../data";
+import { M } from "../styles";
 import AC from "./AC";
 
 export default function SuggestWizard({ onSearch, onReset: parentReset }) {
@@ -10,6 +12,7 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
   const [stayDays, setStayDays] = useState("");
   const [dekidakaWarn, setDekidakaWarn] = useState("");
   const [errMsg, setErrMsg] = useState("");
+  const [noResultHints, setNoResultHints] = useState(null);
 
   const doSearch = useCallback(() => {
     const icd = selIcd || icdIn.trim();
@@ -19,16 +22,16 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
     if (selProc) p.procAnyCode = selProc;
     if (selDrug) p.drugCode = selDrug;
     if (!p.icdCode && !p.surgeryCode && !p.procAnyCode && !p.drugCode) {
-      setErrMsg("少なくとも1つの条件を入力してください"); return;
+      setErrMsg("少なくとも1つの条件を入力してください"); setNoResultHints(null); return;
     }
     const sd = parseInt(stayDays);
     if (!sd || sd <= 0) {
-      setErrMsg("入院日数を入力してください"); return;
+      setErrMsg("入院日数を入力してください"); setNoResultHints(null); return;
     }
     if (p.icdCode) {
       const cls = findCls(p.icdCode);
       if (cls.length === 0 && p.icdCode.match(/^[A-Z]/i)) {
-        setErrMsg("このICD-10はDPC対象外です"); return;
+        setErrMsg("このICD-10はDPC対象外です"); setNoResultHints(null); return;
       }
     }
     setErrMsg("");
@@ -37,17 +40,20 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
     } else { setDekidakaWarn(""); }
     const r = searchDPC(p);
     if (r.length === 0) {
+      const hints = getNoResultHints(p);
+      setNoResultHints(hints && hints.evalItems.length > 0 ? { hints, params: p } : null);
       setErrMsg("該当するDPCがありません");
-      onSearch([], sd, null, null, ""); return;
+      onSearch([], sd, selSurg || ""); return;
     }
-    const sg = expandForSuggest(r);
-    onSearch(sg.expanded, sd, sg.minP1, sg.minP2, selSurg || "");
+    setNoResultHints(null);
+    const sg = expandForSuggest(r, p);
+    onSearch(sg.expanded, sd, selSurg || "");
   }, [selIcd, icdIn, selSurg, selProc, selDrug, onSearch, stayDays]);
 
   const doReset = () => {
     setIcdIn(""); setSelIcd(""); setSurgIn(""); setSelSurg("");
     setProcIn(""); setSelProc(""); setDrugIn(""); setSelDrug("");
-    setStayDays(""); setErrMsg(""); setDekidakaWarn("");
+    setStayDays(""); setErrMsg(""); setDekidakaWarn(""); setNoResultHints(null);
     parentReset();
   };
 
@@ -69,6 +75,38 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
       </div>
       {dekidakaWarn && <div role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{dekidakaWarn}</div>}
       {errMsg && <div id="sg-err-msg" role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{errMsg}</div>}
+      {noResultHints && (
+        <div style={{ background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 8, padding: "14px 18px" }}>
+          <div style={{ fontSize: 13, color: "#404040", fontWeight: 600, marginBottom: 10 }}>
+            <span style={{ fontFamily: M, color: "#3B82F6" }}>{noResultHints.hints.code}</span>
+            {noResultHints.hints.name && <span style={{ color: "#737373", fontWeight: 400 }}> ({noResultHints.hints.name})</span>}
+            <span> が評価される条件：</span>
+          </div>
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {(() => {
+              const grouped = {};
+              for (const it of noResultHints.hints.evalItems) { const k = `${it.cls}_${it.branch}`; if (!grouped[k]) grouped[k] = { cls: it.cls, clsName: it.clsName, branch: it.branch, surgs: [] }; grouped[k].surgs.push(it); }
+              return Object.values(grouped).map((g, i) => (
+                <div key={i} style={{ background: "#FAFAFA", borderRadius: 6, padding: "10px 12px", border: "1px solid #F0F0F0" }}>
+                  <div style={{ fontSize: 12, fontWeight: 600, color: "#404040", marginBottom: 4 }}>
+                    <span style={{ fontFamily: M, color: "#3B82F6" }}>{g.cls}</span>
+                    <span style={{ marginLeft: 6 }}>{g.clsName}</span>
+                    <span style={{ marginLeft: 8, fontSize: 11, color: "#10B981", fontWeight: 500 }}>({g.branch})</span>
+                  </div>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
+                    {g.surgs.map((s, j) => (
+                      <span key={j} style={{ background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 4, padding: "3px 8px", fontSize: 12, color: "#404040" }}>
+                        {s.surgName || `手術区分${s.surgVal}`}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ));
+            })()}
+          </div>
+          {noResultHints.params.surgeryCode && <div style={{ marginTop: 10, fontSize: 12, color: "#737373" }}>入力した手術（<span style={{ fontFamily: M, color: "#3B82F6" }}>{noResultHints.params.surgeryCode}</span>）とは異なる手術区分で評価されるため、組み合わせでは該当がありません。</div>}
+        </div>
+      )}
       <div style={{ display: "flex", gap: 8 }}>
         <button onClick={doReset} style={{ flex: 1, padding: "10px 14px", background: "#F2F2F2", border: "1px solid #E0E0E0", borderRadius: 6, color: "#737373", cursor: "pointer", fontSize: 13, fontWeight: 500, transition: "background .15s" }}>クリア</button>
         <button onClick={doSearch} style={{ flex: 1, padding: "10px 22px", background: "#262626", border: "none", borderRadius: 6, color: "#fff", fontWeight: 700, cursor: "pointer", fontSize: 14, transition: "background .15s" }}>検索</button>

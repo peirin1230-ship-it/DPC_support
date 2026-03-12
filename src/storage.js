@@ -1,5 +1,6 @@
 const HIST_KEY = "dpc_search_history";
 const FAV_KEY  = "dpc_favorites";
+const FB_KEY   = "dpc_feedback";
 const MAX_HIST = 20;
 
 function load(key, fallback) {
@@ -53,4 +54,23 @@ export function removeFavorite(code) {
 }
 export function isFavorite(code) {
   return load(FAV_KEY, []).some(x => x.code === code);
+}
+
+// --- フィードバック ---
+export function getFeedbacks()     { return load(FB_KEY, []); }
+export function addFeedback(text)  {
+  const f = load(FB_KEY, []);
+  f.unshift({ text, ts: Date.now() });
+  save(FB_KEY, f);
+}
+export function exportFeedbacksJSON() {
+  const f = load(FB_KEY, []);
+  if (f.length === 0) return;
+  const blob = new Blob([JSON.stringify(f, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `dpc_feedback_${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(url);
 }

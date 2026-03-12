@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback } from "react";
 import { D } from "../data";
 import { F, M } from "../styles";
-import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, findCls, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize } from "../utils";
-import { addHistory, getFavorites, addFavorite, removeFavorite } from "../storage";
+import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, findCls, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints } from "../utils";
+import { addHistory, getFavorites, addFavorite, removeFavorite, addFeedback, getFeedbacks, exportFeedbacksJSON } from "../storage";
 import useIsMobile from "../useIsMobile";
 import AC from "./AC";
 import IcdPanel from "./IcdPanel";
@@ -78,9 +78,9 @@ function SgOption({o,valueKey,active,onSelect,highlight}){
   );
 }
 
-function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurgVal,sgP1Val,setSgP1Val,sgP2Val,setSgP2Val,sgSdVal,setSgSdVal,sgSevVal,setSgSevVal,sgMinP1,sgMinP2,sgInputSurg,onDetail,cmpList,toggleCmp,isMobile}){
-  const cv36=v=>parseInt(v,36)||0;
+function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurgVal,sgP1Val,setSgP1Val,sgP2Val,setSgP2Val,sgSdVal,setSgSdVal,sgSevVal,setSgSevVal,sgInputSurg,onDetail,cmpList,toggleCmp,isMobile,onRestoreSearch,onJumpToCode}){
   const[stepQuery,setStepQuery]=useState("");
+  const[showSgHist,setShowSgHist]=useState(false);
   // When input surgery was selected on the left, filter to only DPCs where
   // the surgery group for that cls contains the input code (per-cls matching)
   const inputSurgFiltered=useMemo(()=>{
@@ -91,86 +91,39 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
       return D.sl[idx]?.includes(sgInputSurg);
     });
   },[sgExpanded,sgInputSurg]);
-  // Pre-filter: exclude (cls, surgVal) pairs where minP1/minP2 exact corrVal has no DPC
-  const surgeryPreFiltered=useMemo(()=>{
-    if((!sgMinP1||sgMinP1.size===0)&&(!sgMinP2||sgMinP2.size===0))return inputSurgFiltered;
-    const groups=new Map();
-    for(const r of inputSurgFiltered){
-      const key=`${r.cls}::${r.surgVal}`;
-      if(!groups.has(key))groups.set(key,[]);
-      groups.get(key).push(r);
-    }
-    const validKeys=new Set();
-    for(const[key,dpcs]of groups){
-      const cls=dpcs[0].cls;
-      let ok=true;
-      const mp1=sgMinP1?.get(cls);
-      if(mp1!==undefined){
-        if(!dpcs.some(r=>r.hasP1Branch&&cv36(r.p1Val)===mp1))ok=false;
-      }
-      const mp2=sgMinP2?.get(cls);
-      if(ok&&mp2!==undefined){
-        if(!dpcs.some(r=>r.hasP2Branch&&cv36(r.p2Val)===mp2))ok=false;
-      }
-      if(ok)validKeys.add(key);
-    }
-    return inputSurgFiltered.filter(r=>validKeys.has(`${r.cls}::${r.surgVal}`));
-  },[inputSurgFiltered,sgMinP1,sgMinP2]);
-  const surgOpts=useMemo(()=>sgSearched&&surgeryPreFiltered.length>0?getSurgeryOptionsFromResults(surgeryPreFiltered):[],[surgeryPreFiltered,sgSearched]);
+  // p1/p2 constraints are already applied in expandForSuggest (same logic as getExpandedResults)
+  const surgOpts=useMemo(()=>sgSearched&&inputSurgFiltered.length>0?getSurgeryOptionsFromResults(inputSurgFiltered):[],[inputSurgFiltered,sgSearched]);
   const effSurg=useMemo(()=>{
-    // When input surgery is set, skip surgery step entirely (per-cls filter handles it)
     if(sgInputSurg)return"__inputSurg__";
     if(surgOpts.length===1)return surgOpts[0].surgVal;
     return sgSurgVal;
   },[surgOpts,sgSurgVal,sgInputSurg]);
-  // Filter by composite key (surgVal::surgeryName)
   const afterSurg=useMemo(()=>{
-    if(sgInputSurg)return surgeryPreFiltered;// Already filtered per-cls
-    if(effSurg===null)return surgeryPreFiltered;
-    return surgeryPreFiltered.filter(r=>`${r.surgVal}::${r.surgeryName||"なし"}`===effSurg);
-  },[surgeryPreFiltered,effSurg,sgInputSurg]);
-  // Filter p1: exclude "0" and corrVal < minP1 for constrained cls
-  // For p1/p2: higher corrVal = higher priority, so keep >= min
-  const afterSurgP1Filtered=useMemo(()=>{
-    if(!sgMinP1||sgMinP1.size===0)return afterSurg;
-    return afterSurg.filter(r=>{
-      if(!r.hasP1Branch)return true;
-      const min=sgMinP1.get(r.cls);
-      if(min===undefined)return true;
-      if(r.p1Val==="0")return false;
-      return cv36(r.p1Val)>=min;
-    });
-  },[afterSurg,sgMinP1]);
-  const p1Opts=useMemo(()=>effSurg===null?null:getP1OptionsFromResults(afterSurgP1Filtered),[afterSurgP1Filtered,effSurg]);
-  // Auto-select when only 1 option
+    if(sgInputSurg)return inputSurgFiltered;
+    if(effSurg===null)return inputSurgFiltered;
+    return inputSurgFiltered.filter(r=>`${r.surgVal}::${r.surgeryName||"なし"}`===effSurg);
+  },[inputSurgFiltered,effSurg,sgInputSurg]);
+  const p1Opts=useMemo(()=>effSurg===null?null:getP1OptionsFromResults(afterSurg),[afterSurg,effSurg]);
   const effP1=useMemo(()=>{if(!p1Opts||!p1Opts.length)return null;if(p1Opts.length===1)return p1Opts[0].p1Val;return sgP1Val;},[p1Opts,sgP1Val]);
-  // Filter by composite key (p1Val::proc1Name)
   const afterP1=useMemo(()=>{
-    if(effP1===null)return afterSurgP1Filtered;
-    return afterSurgP1Filtered.filter(r=>`${r.p1Val}::${r.proc1Name||"なし"}`===effP1);
-  },[afterSurgP1Filtered,effP1]);
-  // Filter p2: exclude "0" and corrVal < minP2 for constrained cls
-  // For p1/p2: higher corrVal = higher priority, so keep >= min
-  const afterP1P2Filtered=useMemo(()=>{
-    if(!sgMinP2||sgMinP2.size===0)return afterP1;
-    return afterP1.filter(r=>{
-      if(!r.hasP2Branch)return true;
-      const min=sgMinP2.get(r.cls);
-      if(min===undefined)return true;
-      if(r.p2Val==="0")return false;
-      return cv36(r.p2Val)>=min;
+    if(effP1===null)return afterSurg;
+    return afterSurg.filter(r=>{
+      if(!r.hasP1Branch)return effP1.startsWith("0::");
+      return`${r.p1Val}::${r.proc1Name||"なし"}`===effP1;
     });
-  },[afterP1,sgMinP2]);
-  const p2Opts=useMemo(()=>effSurg===null?null:getP2OptionsFromResults(afterP1P2Filtered),[afterP1P2Filtered,effSurg]);
+  },[afterSurg,effP1]);
+  const p2Opts=useMemo(()=>effSurg===null?null:getP2OptionsFromResults(afterP1),[afterP1,effSurg]);
   const effP2=useMemo(()=>{if(!p2Opts||!p2Opts.length)return null;if(p2Opts.length===1)return p2Opts[0].p2Val;return sgP2Val;},[p2Opts,sgP2Val]);
-  // Filter by composite key (p2Val::proc2Name)
   const afterP2=useMemo(()=>{
-    if(effP2===null)return afterP1P2Filtered;
-    return afterP1P2Filtered.filter(r=>`${r.p2Val}::${r.proc2Name||"なし"}`===effP2);
-  },[afterP1P2Filtered,effP2]);
+    if(effP2===null)return afterP1;
+    return afterP1.filter(r=>{
+      if(!r.hasP2Branch)return effP2.startsWith("0::");
+      return`${r.p2Val}::${r.proc2Name||"なし"}`===effP2;
+    });
+  },[afterP1,effP2]);
   const sdOpts=useMemo(()=>effSurg===null?null:getSubdiagOptionsFromResults(afterP2),[afterP2,effSurg]);
   const effSd=useMemo(()=>{if(!sdOpts||!sdOpts.length)return null;if(sdOpts.length===1)return sdOpts[0].sdVal;return sgSdVal;},[sdOpts,sgSdVal]);
-  const afterSd=useMemo(()=>effSd===null?afterP2:afterP2.filter(r=>r.sdVal===effSd),[afterP2,effSd]);
+  const afterSd=useMemo(()=>effSd===null?afterP2:afterP2.filter(r=>{if(r.subdiagName==="-")return effSd==="0";return r.sdVal===effSd;}),[afterP2,effSd]);
   const sevOpts=useMemo(()=>effSurg===null?null:getSeverityOptionsFromResults(afterSd),[afterSd,effSurg]);
   const effSev=useMemo(()=>{if(!sevOpts||!sevOpts.length)return null;if(sevOpts.length===1)return sevOpts[0].sevVal;return sgSevVal;},[sevOpts,sgSevVal]);
   const afterSev=useMemo(()=>effSev===null?afterSd:afterSd.filter(r=>r.severity&&r.severity.value===effSev),[afterSd,effSev]);
@@ -238,19 +191,26 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
-      {/* Completed selections bar */}
-      {selections.length>0&&(
-        <div style={{padding:"10px 20px",borderBottom:"1px solid #E0E0E0",flexShrink:0,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
-          {selections.map((s,i)=>(
-            <span key={i} style={{background:"#F5F5F5",borderRadius:6,padding:"4px 10px",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}>
-              <span style={{color:"#737373"}}>{s.label}:</span>
-              <span style={{color:"#262626",fontWeight:600}}>{s.value}</span>
-              {s.setter&&<button onClick={()=>s.setter(null)} aria-label={`${s.label}の選択を解除`} style={{background:"none",border:"none",color:"#A3A3A3",cursor:"pointer",padding:4,lineHeight:1,marginLeft:0,display:"inline-flex",alignItems:"center",verticalAlign:"middle"}}
-                onMouseEnter={e=>e.currentTarget.style.color="#404040"} onMouseLeave={e=>e.currentTarget.style.color="#A3A3A3"}><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg></button>}
-            </span>
-          ))}
+      {/* Toolbar: history + selections */}
+      <div style={{padding:"10px 20px",borderBottom:"1px solid #E0E0E0",flexShrink:0,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
+        <div style={{position:"relative"}}>
+          <button onClick={()=>setShowSgHist(v=>!v)} style={{padding:"5px 10px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s"}}>履歴</button>
+          {showSgHist&&<HistoryPanel onClose={()=>setShowSgHist(false)} onRestoreSearch={h=>{onRestoreSearch(h);setShowSgHist(false);}} onJumpToCode={c=>{onJumpToCode(c);setShowSgHist(false);}} isMobile={isMobile}
+            cmpSet={new Set(cmpList.map(x=>x.code))}
+            onAddToCompare={code=>{
+              const r=buildResultFromCode(code);if(!r)return;
+              toggleCmp(r);
+            }}/>}
         </div>
-      )}
+        {selections.map((s,i)=>(
+          <span key={i} style={{background:"#F5F5F5",borderRadius:6,padding:"4px 10px",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}>
+            <span style={{color:"#737373"}}>{s.label}:</span>
+            <span style={{color:"#262626",fontWeight:600}}>{s.value}</span>
+            {s.setter&&<button onClick={()=>s.setter(null)} aria-label={`${s.label}の選択を解除`} style={{background:"none",border:"none",color:"#A3A3A3",cursor:"pointer",padding:4,lineHeight:1,marginLeft:0,display:"inline-flex",alignItems:"center",verticalAlign:"middle"}}
+              onMouseEnter={e=>e.currentTarget.style.color="#404040"} onMouseLeave={e=>e.currentTarget.style.color="#A3A3A3"}><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg></button>}
+          </span>
+        ))}
+      </div>
 
       <div style={{flex:1,overflow:"auto",padding:"20px"}}>
         {currentStep!=="done"?(
@@ -379,11 +339,9 @@ export default function DPCTool(){
   const[sgP2Val,setSgP2Val]=useState(null);
   const[sgSdVal,setSgSdVal]=useState(null);
   const[sgSevVal,setSgSevVal]=useState(null);
-  const[sgMinP1,setSgMinP1]=useState(null);
-  const[sgMinP2,setSgMinP2]=useState(null);
   const[sgInputSurg,setSgInputSurg]=useState("");
-  const handleSgSearch=useCallback((exp,sd,mp1,mp2,inputSurg)=>{setSgExpanded(exp);setSgStayDays(sd);setSgSearched(true);setSgSurgVal(null);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);setSgMinP1(mp1||null);setSgMinP2(mp2||null);setSgInputSurg(inputSurg||"");},[]);
-  const handleSgReset=useCallback(()=>{setSgExpanded([]);setSgStayDays(0);setSgSearched(false);setSgSurgVal(null);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);setSgMinP1(null);setSgMinP2(null);setSgInputSurg("");},[]);
+  const handleSgSearch=useCallback((exp,sd,inputSurg)=>{setSgExpanded(exp);setSgStayDays(sd);setSgSearched(true);setSgSurgVal(null);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);setSgInputSurg(inputSurg||"");},[]);
+  const handleSgReset=useCallback(()=>{setSgExpanded([]);setSgStayDays(0);setSgSearched(false);setSgSurgVal(null);setSgP1Val(null);setSgP2Val(null);setSgSdVal(null);setSgSevVal(null);setSgInputSurg("");},[]);
   const[icdIn,setIcdIn]=useState("");const[selIcd,setSelIcd]=useState("");
   const[surgIn,setSurgIn]=useState("");const[selSurg,setSelSurg]=useState("");
   const[procIn,setProcIn]=useState("");const[selProc,setSelProc]=useState("");
@@ -396,10 +354,12 @@ export default function DPCTool(){
   const[showIcd,setShowIcd]=useState(false);
   const[dekidakaWarn,setDekidakaWarn]=useState("");
   const[expandedDPCs,setExpandedDPCs]=useState([]);
+  const[lastParams,setLastParams]=useState(null);
   const[drillP1,setDrillP1]=useState(null);const[drillP2,setDrillP2]=useState(null);
   const[mdcFilter,setMdcFilter]=useState("");
   const[showHistory,setShowHistory]=useState(false);
   const[favSet,setFavSet]=useState(()=>new Set(getFavorites().map(f=>f.code)));
+  const[showFb,setShowFb]=useState(false);const[fbText,setFbText]=useState("");const[fbSent,setFbSent]=useState(false);
 
   const doSearch=()=>{
     const icd=selIcd||icdIn.trim();const p={};
@@ -411,8 +371,8 @@ export default function DPCTool(){
     if(selSurg&&isDekidakaOp(selSurg)){setDekidakaWarn(`${selSurg}（${D.cn[selSurg]||""}）は包括評価対象外の手術です。出来高で算定されます。`);}
     else{setDekidakaWarn("");}
     const r=searchDPC(p);
-    setResults(r);setSearched(true);
-    setExpandedDPCs(getExpandedResults(r));
+    setResults(r);setSearched(true);setLastParams(p);
+    setExpandedDPCs(getExpandedResults(r,p));
     setDrillP1(null);setDrillP2(null);
     if(isMobile)setMobileView("results");
     const parts=[];
@@ -425,7 +385,7 @@ export default function DPCTool(){
     setIcdIn("");setSelIcd("");setSurgIn("");setSelSurg("");
     setProcIn("");setSelProc("");setDrugIn("");setSelDrug("");
     setStayDays("");setResults([]);setSearched(false);setCmpList([]);setDekidakaWarn("");
-    setExpandedDPCs([]);setDrillP1(null);setDrillP2(null);setMdcFilter("");
+    setExpandedDPCs([]);setLastParams(null);setDrillP1(null);setDrillP2(null);setMdcFilter("");
   };
   const[cmpErr,setCmpErr]=useState("");
   const toggleCmp=r=>{setCmpList(p=>{if(p.find(x=>x.code===r.code)){setCmpErr("");return p.filter(x=>x.code!==r.code);}if(p.length>=4){setCmpErr("比較は最大4つまでです。追加するには既存の項目を外してください。");setTimeout(()=>setCmpErr(""),5000);return p;}setCmpErr("");return[...p,r];});};
@@ -442,8 +402,8 @@ export default function DPCTool(){
       const p={};if(h.selIcd)p.icdCode=h.selIcd;if(h.selSurg)p.surgeryCode=h.selSurg;
       if(h.selProc)p.procAnyCode=h.selProc;if(h.selDrug)p.drugCode=h.selDrug;
       if(!p.icdCode&&!p.surgeryCode&&!p.procAnyCode&&!p.drugCode)return;
-      const r=searchDPC(p);setResults(r);setSearched(true);
-      setExpandedDPCs(getExpandedResults(r));setDrillP1(null);setDrillP2(null);
+      const r=searchDPC(p);setResults(r);setSearched(true);setLastParams(p);
+      setExpandedDPCs(getExpandedResults(r,p));setDrillP1(null);setDrillP2(null);
     },0);
   };
   const jumpToCode=code=>{
@@ -474,10 +434,15 @@ export default function DPCTool(){
       {/* Header */}
       <div style={{background:"#FFFFFF",borderBottom:"1px solid #E0E0E0",padding:isMobile?"6px 12px":"10px 20px",display:"flex",alignItems:"center",gap:isMobile?8:12,flexShrink:0}}>
         <div style={{width:isMobile?26:32,height:isMobile?26:32,borderRadius:isMobile?5:7,background:"#262626",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?13:16,fontWeight:800,color:"#fff"}}>D</div>
-        <div>
+        <div style={{flex:1}}>
           <div style={{fontSize:isMobile?13:16,fontWeight:800,color:"#262626"}}>DPC検索ツール</div>
-          {!isMobile&&<div style={{fontSize:10,color:"#737373"}}>令和6年度 DPC電子点数表 ─ {Object.keys(D.dpc).length.toLocaleString()} DPC ・ {Object.keys(D.icn).length.toLocaleString()} ICD-10 ・ 出来高算定手術{Object.keys(D.dk).length}件</div>}
+          {!isMobile&&<div style={{fontSize:10,color:"#737373"}}>令和8年度 DPC電子点数表 ─ {Object.keys(D.dpc).length.toLocaleString()} DPC ・ {Object.keys(D.icn).length.toLocaleString()} ICD-10 ・ 出来高算定手術{Object.keys(D.dk).length}件</div>}
         </div>
+        <button onClick={()=>{setShowFb(true);setFbSent(false);setFbText("");}} style={{padding:isMobile?"6px 10px":"7px 14px",background:"#F5F5F5",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:isMobile?11:12,fontWeight:500,display:"flex",alignItems:"center",gap:5,flexShrink:0,transition:"background .15s"}}
+          onMouseEnter={e=>{e.currentTarget.style.background="#EBEBEB";}} onMouseLeave={e=>{e.currentTarget.style.background="#F5F5F5";}}>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          {isMobile?"要望":"ご意見・要望"}
+        </button>
       </div>
 
       {/* Mobile Tab Bar */}
@@ -656,9 +621,44 @@ export default function DPCTool(){
                 </div>
               </div>
             ):searched?(
-              <div style={{display:"flex",alignItems:"center",justifyContent:"center",height:"100%"}}>
-                <div style={{textAlign:"center"}}>
-                  <div style={{fontSize:14,color:"#737373"}}>{mdcFilter?`MDC ${mdcFilter} に該当するDPCがありません`:"一致するDPCがありません"}</div>
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",overflow:"auto",height:"100%",padding:"20px"}}>
+                <div style={{textAlign:"center",maxWidth:560,width:"100%"}}>
+                  <div style={{fontSize:14,color:"#737373",fontWeight:600}}>{mdcFilter?`MDC ${mdcFilter} に該当するDPCがありません`:"一致するDPCがありません"}</div>
+                  {(()=>{
+                    if(mdcFilter||!lastParams)return null;
+                    const hints=getNoResultHints(lastParams);
+                    if(!hints||!hints.evalItems.length)return null;
+                    const grouped={};
+                    for(const it of hints.evalItems){const k=`${it.cls}_${it.branch}`;if(!grouped[k])grouped[k]={cls:it.cls,clsName:it.clsName,branch:it.branch,surgs:[]};grouped[k].surgs.push(it);}
+                    return(
+                      <div style={{marginTop:16,textAlign:"left",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:8,padding:"14px 18px"}}>
+                        <div style={{fontSize:13,color:"#404040",fontWeight:600,marginBottom:10}}>
+                          <span style={{fontFamily:M,color:"#3B82F6"}}>{hints.code}</span>
+                          {hints.name&&<span style={{color:"#737373",fontWeight:400}}> ({hints.name})</span>}
+                          <span> が評価される条件：</span>
+                        </div>
+                        <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                          {Object.values(grouped).map((g,i)=>(
+                            <div key={i} style={{background:"#FAFAFA",borderRadius:6,padding:"10px 12px",border:"1px solid #F0F0F0"}}>
+                              <div style={{fontSize:12,fontWeight:600,color:"#404040",marginBottom:4}}>
+                                <span style={{fontFamily:M,color:"#3B82F6"}}>{g.cls}</span>
+                                <span style={{marginLeft:6}}>{g.clsName}</span>
+                                <span style={{marginLeft:8,fontSize:11,color:"#10B981",fontWeight:500}}>({g.branch})</span>
+                              </div>
+                              <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                                {g.surgs.map((s,j)=>(
+                                  <span key={j} style={{background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:4,padding:"3px 8px",fontSize:12,color:"#404040"}}>
+                                    {s.surgName||`手術区分${s.surgVal}`}
+                                  </span>
+                                ))}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                        {lastParams.surgeryCode&&<div style={{marginTop:10,fontSize:12,color:"#737373"}}>入力した手術（<span style={{fontFamily:M,color:"#3B82F6"}}>{lastParams.surgeryCode}</span>）とは異なる手術区分で評価されるため、組み合わせでは該当がありません。</div>}
+                      </div>
+                    );
+                  })()}
                 </div>
               </div>
             ):null}
@@ -670,11 +670,12 @@ export default function DPCTool(){
             sgP2Val={sgP2Val} setSgP2Val={v=>{setSgP2Val(v);setSgSdVal(null);setSgSevVal(null);}}
             sgSdVal={sgSdVal} setSgSdVal={v=>{setSgSdVal(v);setSgSevVal(null);}}
             sgSevVal={sgSevVal} setSgSevVal={setSgSevVal}
-            sgMinP1={sgMinP1} sgMinP2={sgMinP2}
             sgInputSurg={sgInputSurg}
             onDetail={setDetail}
             cmpList={cmpList} toggleCmp={toggleCmp}
             isMobile={isMobile}
+            onRestoreSearch={h=>{restoreSearch(h);setMode("list");}}
+            onJumpToCode={jumpToCode}
           />
          )}
         </main>
@@ -726,6 +727,49 @@ export default function DPCTool(){
         },0);
       }}/>}
       {showIcd&&<IcdPanel results={results} onClose={()=>setShowIcd(false)} isMobile={isMobile}/>}
+      {showFb&&(
+        <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>{if(e.target===e.currentTarget)setShowFb(false);}}>
+          <div style={{background:"#FFFFFF",borderRadius:12,padding:"24px 28px",width:"100%",maxWidth:440,boxShadow:"0 16px 48px rgba(0,0,0,.15)"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:16,fontWeight:700,color:"#262626"}}>ご意見・改善要望</div>
+              <button onClick={()=>setShowFb(false)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:"#737373",display:"flex"}} aria-label="閉じる">
+                <svg width="18" height="18" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
+              </button>
+            </div>
+            {fbSent?(
+              <div style={{textAlign:"center",padding:"20px 0"}}>
+                <div style={{fontSize:28,marginBottom:8}}>&#10003;</div>
+                <div style={{fontSize:14,color:"#404040",fontWeight:600}}>送信しました</div>
+                <div style={{fontSize:12,color:"#737373",marginTop:4}}>貴重なご意見ありがとうございます</div>
+                <button onClick={()=>setShowFb(false)} style={{marginTop:16,padding:"8px 24px",background:"#262626",border:"none",borderRadius:6,color:"#fff",fontWeight:600,cursor:"pointer",fontSize:13}}>閉じる</button>
+              </div>
+            ):(
+              <>
+                <div style={{fontSize:12,color:"#737373",marginBottom:8}}>不具合の報告や機能の改善要望をお寄せください。いただいた内容は今後の改善に活用いたします。</div>
+                <textarea value={fbText} onChange={e=>setFbText(e.target.value)} placeholder="例：〇〇を検索したときに△△が表示されない、□□の機能がほしい、など" rows={5}
+                  style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E0E0E0",borderRadius:6,background:"#FAFAFA",color:"#404040",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box",fontFamily:"inherit",transition:"border-color .15s"}}
+                  onFocus={e=>{e.target.style.borderColor="#404040";}} onBlur={e=>{e.target.style.borderColor="#E0E0E0";}} />
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginTop:12}}>
+                  {(()=>{const cnt=getFeedbacks().length;return cnt>0?(
+                    <button onClick={exportFeedbacksJSON} style={{padding:"6px 12px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:500,display:"flex",alignItems:"center",gap:4,transition:"background .15s"}}
+                      onMouseEnter={e=>{e.currentTarget.style.background="#F5F5F5";}} onMouseLeave={e=>{e.currentTarget.style.background="#FFFFFF";}}>
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      エクスポート（{cnt}件）
+                    </button>
+                  ):<div/>;})()}
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={()=>setShowFb(false)} style={{padding:"8px 16px",background:"#F2F2F2",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:13,fontWeight:500}}>キャンセル</button>
+                    <button onClick={()=>{if(!fbText.trim())return;addFeedback(fbText.trim());setFbSent(true);}} disabled={!fbText.trim()}
+                      style={{padding:"8px 20px",background:fbText.trim()?"#262626":"#C0C0C0",border:"none",borderRadius:6,color:"#fff",fontWeight:700,cursor:fbText.trim()?"pointer":"not-allowed",fontSize:13,transition:"background .15s"}}>
+                      送信
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

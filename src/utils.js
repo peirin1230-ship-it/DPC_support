@@ -1,9 +1,10 @@
 import { D } from "./data.js";
 
 export function normalize(s){return s.replace(/[Ａ-Ｚａ-ｚ０-９]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).replace(/[！-～]/g,c=>String.fromCharCode(c.charCodeAt(0)-0xFEE0)).toUpperCase().replace(/[\s　]+/g,"");}
+function dh(s){return s.replace(/-/g,"");}
 export function getLabel(c,t,v){return D.lb[c]?.[t]?.[v]||v||"";}
 export function hasBranch(c,s,t){return !!D.br[c]?.[s]?.[t];}
-export function findCls(icd){const r=[];for(const[c,codes]of Object.entries(D.icd)){if(codes.includes(icd))r.push(c);}return r;}
+export function findCls(icd){const r=[];for(const[c,codes]of Object.entries(D.icd)){let found=false;for(const code of codes){if(code.endsWith("$")){if(icd.startsWith(code.slice(0,-1))){found=true;break;}}else{if(code===icd){found=true;break;}}}if(found)r.push(c);}return r;}
 
 export function getSubdiagICDs(cls,sdVal){
   if(!sdVal||sdVal==="0"||sdVal===0)return[];
@@ -41,7 +42,7 @@ export function calcTotal(days,pts,sd){
 }
 export function totalVal(days,pts,sd){const r=calcTotal(days,pts,sd);return r?r.total:0;}
 
-export function isDekidakaOp(kCode){return!!D.dk?.[kCode];}
+export function isDekidakaOp(kCode){if(D.dk?.[kCode])return true;const kd=dh(kCode);for(const k of Object.keys(D.dk)){if(dh(k)===kd)return true;}return false;}
 
 export function searchDPC({icdCode,surgeryCode,procAnyCode,drugCode}){
   const results=[];
@@ -54,14 +55,15 @@ export function searchDPC({icdCode,surgeryCode,procAnyCode,drugCode}){
     if(surgeryCode==="KKK0"){const all=targetCls||Object.keys(D.cls);for(const c of all){if(!cons[c])cons[c]={};cons[c].surg="99";}}
     else{for(const[c,si]of Object.entries(D.si)){if(targetCls&&!targetCls.includes(c))continue;for(const[corr,idx]of Object.entries(si)){if(D.sl[idx]?.includes(surgeryCode)){if(!cons[c])cons[c]={};cons[c].surg=corr;break;}}}}
   }
+  const procFound=new Set(),drugFound=new Set();
   if(procAnyCode){
-    for(const[c,p1]of Object.entries(D.p1)){if(targetCls&&!targetCls.includes(c))continue;if(surgeryCode&&!cons[c])continue;for(const[corr,codes]of Object.entries(p1)){if(codes.includes(procAnyCode)){if(!cons[c])cons[c]={};if(!cons[c].p1)cons[c].p1=corr;break;}}}
-    for(const[c,p2]of Object.entries(D.p2)){if(targetCls&&!targetCls.includes(c))continue;if(surgeryCode&&!cons[c])continue;for(const[corr,codes]of Object.entries(p2)){if(codes.includes(procAnyCode)){if(!cons[c])cons[c]={};if(!cons[c].p2)cons[c].p2=corr;break;}}}
+    for(const[c,p1]of Object.entries(D.p1)){if(targetCls&&!targetCls.includes(c))continue;if(surgeryCode&&!cons[c])continue;for(const[corr,codes]of Object.entries(p1)){if(codes.includes(procAnyCode)){if(!cons[c])cons[c]={};if(!cons[c].p1)cons[c].p1=corr;procFound.add(c);break;}}}
+    for(const[c,p2]of Object.entries(D.p2)){if(targetCls&&!targetCls.includes(c))continue;if(surgeryCode&&!cons[c])continue;for(const[corr,codes]of Object.entries(p2)){if(codes.includes(procAnyCode)){if(!cons[c])cons[c]={};if(!cons[c].p2)cons[c].p2=corr;procFound.add(c);break;}}}
   }
   if(drugCode){
-    for(const[c,p2]of Object.entries(D.p2)){if(targetCls&&!targetCls.includes(c))continue;if(surgeryCode&&!cons[c])continue;for(const[corr,codes]of Object.entries(p2)){if(codes.includes(drugCode)){if(!cons[c])cons[c]={};cons[c].p2=corr;break;}}}
+    for(const[c,p2]of Object.entries(D.p2)){if(targetCls&&!targetCls.includes(c))continue;if(surgeryCode&&!cons[c])continue;for(const[corr,codes]of Object.entries(p2)){if(codes.includes(drugCode)){if(!cons[c])cons[c]={};cons[c].p2=corr;drugFound.add(c);break;}}}
   }
-  if(anyProc){const cls2=targetCls||Object.keys(cons);for(const c of cls2){if(!cons[c])cons[c]={};if(cons[c].p1===undefined)cons[c].p1="0";if(cons[c].p2===undefined)cons[c].p2="0";}}
+  if(anyProc){const cls2=targetCls||Object.keys(cons);for(const c of cls2){if(!cons[c])cons[c]={};if(procAnyCode&&!procFound.has(c)){delete cons[c];continue;}if(drugCode&&!drugFound.has(c)){delete cons[c];continue;}if(cons[c].p1===undefined)cons[c].p1="0";if(cons[c].p2===undefined)cons[c].p2="0";}}
   const sCls=targetCls||Object.keys(cons);if(!sCls.length)return[];
   for(const cls of sCls){
     const co=cons[cls]||{};
@@ -91,10 +93,24 @@ export function searchDPC({icdCode,surgeryCode,procAnyCode,drugCode}){
   return results.slice(0,300);
 }
 
-export function searchDisease(q){if(!q||q.length<1)return[];const qn=normalize(q);const r=[];for(const[c,n]of Object.entries(D.icn)){if(n.includes(q)||normalize(n).includes(qn)||normalize(c).includes(qn)){r.push({code:c,name:cleanName(n)});if(r.length>=30)break;}}return r;}
-export function searchSurg(q){if(!q||q.length<1)return[];const qn=normalize(q);const r=[],seen=new Set();for(const si of Object.values(D.si)){for(const idx of Object.values(si)){for(const kc of(D.sl[idx]||[])){if(!seen.has(kc)&&(normalize(kc).includes(qn)||normalize(D.cn[kc]||"").includes(qn))){const dk=isDekidakaOp(kc);r.push({code:kc,name:D.cn[kc]||"",dk});seen.add(kc);if(r.length>=20)return r;}}}}return r;}
-export function searchProc(q){if(!q||q.length<1)return[];const qn=normalize(q);const r=[],seen=new Set();for(const grp of Object.values(D.p1)){for(const codes of Object.values(grp)){for(const c of codes){if(!seen.has(c)&&(normalize(c).includes(qn)||normalize(D.cn[c]||"").includes(qn))){r.push({code:c,name:D.cn[c]||"",tag:"処置1"});seen.add(c);if(r.length>=30)return r;}}}}for(const grp of Object.values(D.p2)){for(const codes of Object.values(grp)){for(const c of codes){if(!seen.has(c)&&(normalize(c).includes(qn)||normalize(D.cn[c]||"").includes(qn))){r.push({code:c,name:D.cn[c]||"",tag:"処置2"});seen.add(c);if(r.length>=30)return r;}}}}return r;}
+export function searchDisease(q){if(!q||q.length<1)return[];const qn=normalize(q);const r=[];for(const[c,n]of Object.entries(D.icn)){const cn=normalize(c);const isP=c.endsWith("$");const base=isP?cn.slice(0,-1):cn;if(n.includes(q)||normalize(n).includes(qn)||cn.includes(qn)||(isP&&qn.startsWith(base))){r.push({code:c,name:cleanName(n)});if(r.length>=30)break;}}return r;}
+export function searchSurg(q){if(!q||q.length<1)return[];const qn=normalize(q);const qd=dh(qn);const r=[],seen=new Set();for(const si of Object.values(D.si)){for(const idx of Object.values(si)){for(const kc of(D.sl[idx]||[])){if(!seen.has(kc)&&(dh(normalize(kc)).includes(qd)||normalize(D.cn[kc]||"").includes(qn))){const dk=isDekidakaOp(kc);r.push({code:kc,name:D.cn[kc]||"",dk});seen.add(kc);if(r.length>=20)return r;}}}}return r;}
+export function searchProc(q){if(!q||q.length<1)return[];const qn=normalize(q);const qd=dh(qn);const r=[],seen=new Set();for(const grp of Object.values(D.p1)){for(const codes of Object.values(grp)){for(const c of codes){if(!seen.has(c)&&(dh(normalize(c)).includes(qd)||normalize(D.cn[c]||"").includes(qn))){r.push({code:c,name:D.cn[c]||"",tag:"処置1"});seen.add(c);if(r.length>=30)return r;}}}}for(const grp of Object.values(D.p2)){for(const codes of Object.values(grp)){for(const c of codes){if(!seen.has(c)&&(dh(normalize(c)).includes(qd)||normalize(D.cn[c]||"").includes(qn))){r.push({code:c,name:D.cn[c]||"",tag:"処置2"});seen.add(c);if(r.length>=30)return r;}}}}return r;}
 export const MDC_NAMES={"01":"神経系","02":"眼科系","03":"耳鼻咽喉科系","04":"呼吸器系","05":"循環器系","06":"消化器系","07":"筋骨格系","08":"皮膚・皮下組織","09":"乳房","10":"内分泌・代謝","11":"腎・泌尿器","12":"女性生殖器・産褥","13":"血液・免疫","14":"新生児・先天性","15":"小児","16":"外傷・中毒","17":"精神","18":"その他"};
+
+export function getNoResultHints({surgeryCode,procAnyCode,drugCode}){
+  if(!procAnyCode&&!drugCode)return null;
+  const evalItems=[];
+  if(procAnyCode){
+    for(const[cls,p1]of Object.entries(D.p1)){for(const[,codes]of Object.entries(p1)){if(codes.includes(procAnyCode)){const br=D.br[cls];if(br)for(const[sv,b]of Object.entries(br)){if(b["1"])evalItems.push({cls,clsName:D.cls[cls]||"",surgVal:sv,surgName:getLabel(cls,"o",sv),branch:"処置1"});}break;}}}
+    for(const[cls,p2]of Object.entries(D.p2)){for(const[,codes]of Object.entries(p2)){if(codes.includes(procAnyCode)){const br=D.br[cls];if(br)for(const[sv,b]of Object.entries(br)){if(b["2"])evalItems.push({cls,clsName:D.cls[cls]||"",surgVal:sv,surgName:getLabel(cls,"o",sv),branch:"処置2"});}break;}}}
+  }
+  if(drugCode){
+    for(const[cls,p2]of Object.entries(D.p2)){for(const[,codes]of Object.entries(p2)){if(codes.includes(drugCode)){const br=D.br[cls];if(br)for(const[sv,b]of Object.entries(br)){if(b["2"])evalItems.push({cls,clsName:D.cls[cls]||"",surgVal:sv,surgName:getLabel(cls,"o",sv),branch:"処置2"});}break;}}}
+  }
+  const code=procAnyCode||drugCode;
+  return{code,name:D.cn[code]||"",evalItems};
+}
 
 export function findCorrValForCls(cls,type,code){
   const map=type==="p1"?D.p1[cls]:D.p2[cls];
@@ -103,13 +119,28 @@ export function findCorrValForCls(cls,type,code){
   return null;
 }
 
-export function getExpandedResults(baseResults){
+export function getExpandedResults(baseResults,searchParams){
   const pairs=new Set();
-  for(const r of baseResults)pairs.add(`${r.cls}_${r.surgVal}`);
+  const p1Cons=new Map();
+  const p2Cons=new Map();
+  const hasProc=searchParams&&(searchParams.procAnyCode||searchParams.drugCode);
+  for(const r of baseResults){
+    pairs.add(`${r.cls}_${r.surgVal}`);
+    if(hasProc){
+      if(!p1Cons.has(r.cls))p1Cons.set(r.cls,r.p1Val);
+      if(!p2Cons.has(r.cls))p2Cons.set(r.cls,r.p2Val);
+    }
+  }
   const expanded=[];
   for(const[dpc,info]of Object.entries(D.dpc)){
     const cls=info[0]+info[1];const sv=info[3];
     if(!pairs.has(`${cls}_${sv}`))continue;
+    if(hasProc){
+      const p1c=p1Cons.get(cls);
+      if(p1c!==undefined&&hasBranch(cls,sv,"1")&&info[4]!==p1c)continue;
+      const p2c=p2Cons.get(cls);
+      if(p2c!==undefined&&hasBranch(cls,sv,"2")&&info[5]!==p2c)continue;
+    }
     const dk=info[2]==="0"||info[2]===0;
     expanded.push({
       code:dpc,cls,clsName:D.cls[cls]||"",
@@ -126,42 +157,33 @@ export function getExpandedResults(baseResults){
   return expanded;
 }
 
-export function expandForSuggest(baseResults){
+export function expandForSuggest(baseResults,searchParams){
   const cv36=v=>parseInt(v,36)||0;
-  // Per-cls, find maximum matched surgVal
-  // DPC convention: lower surgVal = higher priority (01=most complex, 97=手術なし)
-  // Keep DPCs with surgVal <= max (= same or higher priority than matched)
+  const hasProc=searchParams&&(searchParams.procAnyCode||searchParams.drugCode);
+  const p1Cons=new Map(),p2Cons=new Map();
   const clsMax=new Map();
   for(const r of baseResults){
     const sc=cv36(r.surgVal);
     const ex=clsMax.get(r.cls);
     if(ex===undefined||sc>ex)clsMax.set(r.cls,sc);
-  }
-  // Per-cls, find min matched p1Val/p2Val (only non-zero)
-  // For p1/p2: higher corrVal = higher priority (more specific procedure)
-  // So keep corrVal >= min (same or higher priority)
-  // If base results include "0" for a cls, that cls is NOT constrained
-  const minP1=new Map(),minP2=new Map();
-  const p1HasZero=new Set(),p2HasZero=new Set();
-  for(const r of baseResults){
-    if(r.hasP1Branch){
-      if(r.p1Val==="0")p1HasZero.add(r.cls);
-      else{const v=cv36(r.p1Val);const ex=minP1.get(r.cls);if(ex===undefined||v<ex)minP1.set(r.cls,v);}
-    }
-    if(r.hasP2Branch){
-      if(r.p2Val==="0")p2HasZero.add(r.cls);
-      else{const v=cv36(r.p2Val);const ex=minP2.get(r.cls);if(ex===undefined||v<ex)minP2.set(r.cls,v);}
+    if(hasProc){
+      if(!p1Cons.has(r.cls))p1Cons.set(r.cls,r.p1Val);
+      if(!p2Cons.has(r.cls))p2Cons.set(r.cls,r.p2Val);
     }
   }
-  for(const cls of p1HasZero)minP1.delete(cls);
-  for(const cls of p2HasZero)minP2.delete(cls);
   const expanded=[];
   for(const[dpc,info]of Object.entries(D.dpc)){
     const cls=info[0]+info[1];
     const maxSurg=clsMax.get(cls);
     if(maxSurg===undefined)continue;
     const sv=info[3];const surgCv=cv36(sv);
-    if(surgCv>maxSurg)continue;// Only keep <= matched (higher or equal priority)
+    if(surgCv>maxSurg)continue;
+    if(hasProc){
+      const p1c=p1Cons.get(cls);
+      if(p1c!==undefined&&hasBranch(cls,sv,"1")&&info[4]!==p1c)continue;
+      const p2c=p2Cons.get(cls);
+      if(p2c!==undefined&&hasBranch(cls,sv,"2")&&info[5]!==p2c)continue;
+    }
     const dk=info[2]==="0"||info[2]===0;
     expanded.push({
       code:dpc,cls,clsName:D.cls[cls]||"",
@@ -175,7 +197,7 @@ export function expandForSuggest(baseResults){
       days:[info[7],info[8],info[9]],points:[info[10],info[11],info[12]],isDekidaka:dk
     });
   }
-  return{expanded,minP1,minP2};
+  return{expanded};
 }
 
 export function filterDrillDown(expandedDPCs,drillP1,drillP2){

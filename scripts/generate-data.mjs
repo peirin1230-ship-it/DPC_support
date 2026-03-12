@@ -495,9 +495,29 @@ for (let i = 2; i < sheetDk.length; i++) {
   const code = str(row[1]);
   const name = str(row[2]);
   if (!code || !name) continue;
+  // ヘッダー行の誤読を防止（Kコードまたは区分コード形式のみ許可）
+  if (!/^[A-Z]\d/.test(code) && !/^\d{4}/.test(code)) continue;
   D.dk[code] = name;
 }
-console.log(`  → D.dk: ${Object.keys(D.dk).length} 件`);
+if (Object.keys(D.dk).length === 0) {
+  console.log("  [WARN] 出来高算定手術等コードがExcelに含まれていません");
+  // 既存data.jsからD.dkを引き継ぐ
+  try {
+    const existingData = readFileSync(join(ROOT, "src", "data.js"), "utf-8");
+    const match = existingData.match(/export\s+const\s+D\s*=\s*(\{[\s\S]+\});?\s*$/);
+    if (match) {
+      const existingD = JSON.parse(match[1]);
+      if (existingD.dk && Object.keys(existingD.dk).length > 0) {
+        D.dk = existingD.dk;
+        console.log(`  → 既存 D.dk を引き継ぎ: ${Object.keys(D.dk).length} 件`);
+      }
+    }
+  } catch (e) {
+    console.warn(`  [WARN] 既存 D.dk の読み込みに失敗: ${e.message}`);
+  }
+} else {
+  console.log(`  → D.dk: ${Object.keys(D.dk).length} 件`);
+}
 
 // ── 12）変換テーブル → D.dpc（ベース値）, D.br ──
 console.log("D.dpc, D.br 生成中（変換テーブル）...");
