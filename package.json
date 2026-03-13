@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "vite build"
+    "build": "vite build",
+    "validate:data": "node scripts/validate-dpc-data.mjs",
+    "validate:all": "npm run validate:data && npm run build"
   },
   "dependencies": {
     "react": "^18.3.1",
