@@ -525,7 +525,20 @@ npm run dev
 
 ## 5. 検証手順
 
-### 5.1 自動テスト
+### 5.1 データ一致チェック（新規）
+
+データ更新後は、必ず以下を実行して `src/data.js` が公式Excel再生成結果と一致することを確認します。
+
+```bash
+npm run validate:data
+```
+
+- このチェックは `scripts/generate-data.mjs --keep-da` で一時生成したデータと現行 `src/data.js` を比較します。
+- 主要テーブル（`dpc/cls/lb/br/p1/p2/si/sl/icd/icn/sd/sv/dk/cn/da/pt`）の件数・内容が不一致の場合は失敗します。
+- CI（`.github/workflows/validate-dpc.yml`）でも同じチェックを実行します。
+
+
+### 5.2 自動テスト
 
 ```bash
 node _verify.mjs
@@ -544,7 +557,7 @@ node _verify.mjs
 | 7. cls exclusion | コード非該当の分類が正しく除外されるか |
 | 8. Random procedure | 無作為処置コードでの拡張結果整合性 |
 
-### 5.2 手動確認項目
+### 5.3 手動確認項目
 
 - [ ] DPCコード件数が妥当か（前回比 ±10%以内）
 - [ ] 期間Ⅰ < 期間Ⅱ < 期間Ⅲ の日数順序が全DPCで守られているか
