@@ -33,7 +33,7 @@ export default function AC({label,value,onChange,onSelect,searchFn,placeholder,s
               style={{padding:isMobile?"9px 10px":"7px 10px",cursor:"pointer",borderBottom:"1px solid #F5F5F5",fontSize:13,color:"#404040",display:"flex",gap:8,alignItems:"center",transition:"background .15s",background:i===hi?"#F5F5F5":"transparent"}}>
               <span style={{color:r.dk?"#EF4444":"#3B82F6",fontFamily:M,fontSize:12,flexShrink:0}}>{r.code}</span>
               <span style={{overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",flex:1}}>{r.name}</span>
-              {showTag&&r.tag&&<span style={{background:"#F2F2F2",color:"#737373",borderRadius:3,padding:"1px 5px",fontSize:10,flexShrink:0}}>{r.tag}</span>}
+              {r.tag&&<span style={{background:r.free?"#FFFBEB":"#F2F2F2",color:r.free?"#92400E":"#737373",borderRadius:3,padding:"1px 5px",fontSize:10,flexShrink:0}}>{r.tag}</span>}
               {r.dk&&<span style={{background:"#FEF2F2",color:"#EF4444",borderRadius:3,padding:"1px 5px",fontSize:10,flexShrink:0}}>包括対象外</span>}
             </div>
           ))}

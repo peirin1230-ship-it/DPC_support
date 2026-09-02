@@ -25,5 +25,8 @@ jobs:
       - name: Validate generated master-data consistency
         run: npm run validate:data
 
+      - name: Run unit and data-integrity tests
+        run: npm test
+
       - name: Build app
         run: npm run build

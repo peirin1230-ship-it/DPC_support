@@ -189,10 +189,10 @@ export default function CompareModal({items,onClose,sd,isMobile}){
   const fields=[
     ["DPC",r=>r.code,1],["分類",r=>r.clsName],
     ...(hasCond?[["条件",r=>r.condLabel||"-"]]:[]),
-    ["手術",r=>r.surgeryName||"なし"],["処置1",r=>r.proc1Name],["処置2",r=>r.proc2Name],["副傷病",r=>r.subdiagName],
+    ["手術",r=>r.hasSurgBranch===false?"（分岐なし）":(r.surgeryName||"なし")],["処置1",r=>r.proc1Name],["処置2",r=>r.proc2Name],["副傷病",r=>r.subdiagName],
     ...(hasSev?[["重症度",r=>r.severity?r.severity.label:"-"]]:[]),
     ["区分",r=>r.isDekidaka?"出来高":"包括"],
-    ["期間I",r=>r.days[0]||0,1,"hib"],["期間II",r=>r.days[1]||0,1,"hib"],["期間III",r=>r.days[2]||0,1,"hib"],
+    ["期間I",r=>r.days[0]||0,1,"hib"],["期間II",r=>r.points[1]?(r.days[1]||0):0,1,"hib"],["期間III",r=>r.days[2]||0,1,"hib"],
     ["点数I/日",r=>r.points[0]||0,1,"hib"],["点数II/日",r=>r.points[1]||0,1,"hib"],["点数III/日",r=>r.points[2]||0,1,"hib"],
   ];
   const numInfo=fields.map(([,fn,,cmp])=>{

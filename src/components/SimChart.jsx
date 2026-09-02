@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { M } from "../styles";
+import { calcTotal } from "../utils";
 import useModal from "../useModal";
 
 // 全期間同一色（比較時と統一性を持たせるため）
@@ -11,9 +12,10 @@ export function buildStepPath(days, points, xFn, yFn, y0) {
   const [d1, d2, d3] = days;
   const [p1, p2, p3] = points;
   const segs = [];
+  // 期間Ⅱが存在しないDPC（点数表で「-」→ 日数・点数0）は期間Ⅲが期間Ⅰの直後から始まる
   if (d1 && p1) segs.push({ x0: 0, x1: d1, y: p1, pi: 0 });
   if (d2 && p2) segs.push({ x0: d1 || 0, x1: d2, y: p2, pi: 1 });
-  if (d3 && p3) segs.push({ x0: d2 || 0, x1: d3, y: p3, pi: 2 });
+  if (d3 && p3) segs.push({ x0: Math.max(d1 || 0, d2 || 0), x1: d3, y: p3, pi: 2 });
   if (segs.length === 0) return { fill: "", line: "", segs: [] };
 
   // 塗りつぶし用パス（閉じる）
@@ -59,18 +61,10 @@ export default function SimChart({ r, sd, onClose, isMobile }) {
   const periods = [];
   if (d1 && p1) periods.push({ label: "I", d: `${d1}日`, pts: p1, total: d1 * p1, color: LINE_CLR });
   if (d2 && p2) periods.push({ label: "II", d: `${(d1||0)+1}〜${d2}日`, pts: p2, total: ((d2||0)-(d1||0))*p2, color: LINE_CLR });
-  if (d3 && p3) periods.push({ label: "III", d: `${(d2||0)+1}〜${d3}日`, pts: p3, total: ((d3||0)-(d2||0))*p3, color: LINE_CLR });
-  // sd指定時の正確な合計
-  const sdTotal = useMemo(() => {
-    if (!sd || sd <= 0) return 0;
-    let t = 0;
-    for (let d = 1; d <= sd; d++) {
-      if (d <= (d1||0)) t += (p1||0);
-      else if (d <= (d2||0)) t += (p2||0);
-      else if (d <= (d3||0)) t += (p3||0);
-    }
-    return t;
-  }, [sd, d1, d2, d3, p1, p2, p3]);
+  const endII = Math.max(d1 || 0, d2 || 0);
+  if (d3 && p3) periods.push({ label: "III", d: `${endII+1}〜${d3}日`, pts: p3, total: ((d3||0)-endII)*p3, color: LINE_CLR });
+  // sd指定時の合計（一覧・詳細と同じ calcTotal を使用して算出ロジックを一元化）
+  const sdTotal = useMemo(() => calcTotal(r.days, r.points, sd)?.total || 0, [r.days, r.points, sd]);
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 1100,

@@ -1,16 +1,20 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useId } from "react";
 import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findCls, getNoResultHints } from "../utils";
 import { D } from "../data";
 import { M } from "../styles";
 import AC from "./AC";
 
 export default function SuggestWizard({ onSearch, onReset: parentReset }) {
+  // 検索1/検索2 の2インスタンスが同時にマウントされるため、id は useId で一意にする
+  const uid = useId();
+  const stayId = `sg-stay-days${uid}`, errId = `sg-err-msg${uid}`;
   const [icdIn, setIcdIn] = useState(""); const [selIcd, setSelIcd] = useState("");
   const [surgIn, setSurgIn] = useState(""); const [selSurg, setSelSurg] = useState("");
   const [procIn, setProcIn] = useState(""); const [selProc, setSelProc] = useState("");
   const [drugIn, setDrugIn] = useState(""); const [selDrug, setSelDrug] = useState("");
   const [stayDays, setStayDays] = useState("");
   const [dekidakaWarn, setDekidakaWarn] = useState("");
+  const [infoMsg, setInfoMsg] = useState("");
   const [errMsg, setErrMsg] = useState("");
   const [noResultHints, setNoResultHints] = useState(null);
 
@@ -22,16 +26,16 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
     if (selProc) p.procAnyCode = selProc;
     if (selDrug) p.drugCode = selDrug;
     if (!p.icdCode && !p.surgeryCode && !p.procAnyCode && !p.drugCode) {
-      setErrMsg("少なくとも1つの条件を入力してください"); setNoResultHints(null); return;
+      setErrMsg("少なくとも1つの条件を入力してください"); setNoResultHints(null); setInfoMsg(""); return;
     }
     const sd = parseInt(stayDays);
     if (!sd || sd <= 0) {
-      setErrMsg("入院日数を入力してください"); setNoResultHints(null); return;
+      setErrMsg("入院日数を入力してください"); setNoResultHints(null); setInfoMsg(""); return;
     }
     if (p.icdCode) {
       const cls = findCls(p.icdCode);
       if (cls.length === 0 && p.icdCode.match(/^[A-Z]/i)) {
-        setErrMsg("このICD-10はDPC対象外です"); setNoResultHints(null); return;
+        setErrMsg("このICD-10はDPC対象外です"); setNoResultHints(null); setInfoMsg(""); return;
       }
     }
     setErrMsg("");
@@ -43,9 +47,13 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
       const hints = getNoResultHints(p);
       setNoResultHints(hints && hints.evalItems.length > 0 ? { hints, params: p } : null);
       setErrMsg("該当するDPCがありません");
+      setInfoMsg("");
       onSearch([], sd, selSurg || ""); return;
     }
     setNoResultHints(null);
+    setInfoMsg(r.some(x => x.surgFallback)
+      ? `${selSurg} はこの分類の定義テーブルにない手術のため、「その他の手術あり（97）」として候補を絞り込みます。`
+      : "");
     const sg = expandForSuggest(r, p);
     onSearch(sg.expanded, sd, selSurg || "");
   }, [selIcd, icdIn, selSurg, selProc, selDrug, onSearch, stayDays]);
@@ -53,7 +61,7 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
   const doReset = () => {
     setIcdIn(""); setSelIcd(""); setSurgIn(""); setSelSurg("");
     setProcIn(""); setSelProc(""); setDrugIn(""); setSelDrug("");
-    setStayDays(""); setErrMsg(""); setDekidakaWarn(""); setNoResultHints(null);
+    setStayDays(""); setErrMsg(""); setDekidakaWarn(""); setInfoMsg(""); setNoResultHints(null);
     parentReset();
   };
 
@@ -65,16 +73,17 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
       <AC label="手術・処置等" value={procIn} onChange={v => { setProcIn(v); setSelProc(""); }} onSelect={r => { setProcIn(`${r.code} ${r.name}`); setSelProc(r.code); }} searchFn={searchProc} placeholder="例: SPECT, E101..." showTag />
       <AC label="薬剤" value={drugIn} onChange={v => { setDrugIn(v); setSelDrug(""); }} onSelect={r => { setDrugIn(`${r.code} ${r.name}`); setSelDrug(r.code); }} searchFn={searchDrug} placeholder="例: リコモジュリン..." />
       <div>
-        <label htmlFor="sg-stay-days" style={{ display: "block", fontSize: 11, color: "#737373", marginBottom: 3, fontWeight: 600 }}>入院日数 <span style={{ color: "#EF4444" }}>*</span></label>
-        <input id="sg-stay-days" type="number" min="1" max="365" value={stayDays} onChange={e => setStayDays(e.target.value)} placeholder="14"
+        <label htmlFor={stayId} style={{ display: "block", fontSize: 11, color: "#737373", marginBottom: 3, fontWeight: 600 }}>入院日数 <span style={{ color: "#EF4444" }}>*</span></label>
+        <input id={stayId} className="sg-stay-days" type="number" min="1" max="365" value={stayDays} onChange={e => setStayDays(e.target.value)} placeholder="14"
           aria-invalid={errMsg && errMsg.includes("入院日数") ? "true" : undefined}
-          aria-describedby={errMsg ? "sg-err-msg" : undefined}
+          aria-describedby={errMsg ? errId : undefined}
           style={{ width: "100%", padding: "8px 10px", border: `1.5px solid ${!stayDays ? "#FCA5A5" : "#E0E0E0"}`, borderRadius: 6, background: "#FFFFFF", color: "#404040", fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color .15s, box-shadow .15s" }}
           onFocus={e => { e.target.style.borderColor = "#404040"; e.target.style.boxShadow = "0 0 0 3px rgba(64,64,64,.1)"; }}
           onBlur={e => { e.target.style.borderColor = !stayDays ? "#FCA5A5" : "#E0E0E0"; e.target.style.boxShadow = "none"; }} />
       </div>
       {dekidakaWarn && <div role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{dekidakaWarn}</div>}
-      {errMsg && <div id="sg-err-msg" role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{errMsg}</div>}
+      {infoMsg && <div role="status" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#92400E" }}>{infoMsg}</div>}
+      {errMsg && <div id={errId} role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{errMsg}</div>}
       {noResultHints && (
         <div style={{ background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 8, padding: "14px 18px" }}>
           <div style={{ fontSize: 13, color: "#404040", fontWeight: 600, marginBottom: 10 }}>
@@ -96,7 +105,7 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
                   <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
                     {g.surgs.map((s, j) => (
                       <span key={j} style={{ background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 4, padding: "3px 8px", fontSize: 12, color: "#404040" }}>
-                        {s.surgName || `手術区分${s.surgVal}`}
+                        {s.surgName || (s.surgVal === "xx" ? "手術による分岐なし" : `手術区分${s.surgVal}`)}
                       </span>
                     ))}
                   </div>
