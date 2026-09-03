@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import useModal from "../useModal";
 import { D } from "../data";
 import { F, M } from "../styles";
 import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHasExact, combosContaining, surgKey, isNonSurgeryCode, NON_SURGERY_NOTE, icdWarning, COEFFICIENT_NOTE, getCondOptionsFromResults } from "../utils";
@@ -207,7 +208,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgCondVal,setSgCond
       {/* Toolbar: history + selections */}
       <div style={{padding:"10px 20px",borderBottom:"1px solid #E0E0E0",flexShrink:0,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <div style={{position:"relative"}}>
-          <button onClick={()=>setShowSgHist(v=>!v)} style={{padding:"5px 10px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s"}}>履歴</button>
+          <button onClick={()=>setShowSgHist(v=>!v)} aria-expanded={showSgHist} aria-haspopup="dialog" style={{padding:"5px 10px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s"}}>履歴</button>
           {showSgHist&&<HistoryPanel onClose={()=>setShowSgHist(false)} onRestoreSearch={h=>{onRestoreSearch(h);setShowSgHist(false);}} onJumpToCode={c=>{onJumpToCode(c);setShowSgHist(false);}} isMobile={isMobile}
             cmpSet={new Set(cmpList.map(x=>x.code))}
             onAddToCompare={code=>{
@@ -378,6 +379,19 @@ export default function DPCTool(){
   const[showFb,setShowFb]=useState(false);const[fbText,setFbText]=useState("");const[fbSent,setFbSent]=useState(false);
   const[showDk,setShowDk]=useState(false);const[renderLimit,setRenderLimit]=useState(300);
 
+  // 一覧検索の実行を1箇所に集約する（検索フォーム・履歴の復元・類似分類へのジャンプで共通）
+  // 結果に紐づく状態（警告・前回条件・ドリルダウン・表示件数・MDC絞込）は必ず同時に初期化する
+  const runSearch=(p,{resetMdc=false}={})=>{
+    if(p.surgeryCode&&isDekidakaOp(p.surgeryCode)){setDekidakaWarn(`${p.surgeryCode}（${D.cn[p.surgeryCode]||""}）は包括評価対象外の手術です。出来高で算定されます。`);}
+    else{setDekidakaWarn("");}
+    const r=searchDPC(p);
+    setResults(r);setSearched(true);setLastParams(p);
+    setExpandedDPCs(getExpandedResults(r,p));
+    setDrillP1(null);setDrillP2(null);setRenderLimit(300);
+    if(resetMdc)setMdcFilter("");
+    if(isMobile)setMobileView("results");
+    return r;
+  };
   const doSearch=()=>{
     const icd=selIcd||icdIn.trim();const p={};
     if(icd)p.icdCode=icd;
@@ -385,13 +399,7 @@ export default function DPCTool(){
     if(selProc)p.procAnyCode=selProc;
     if(selDrug)p.drugCode=selDrug;
     if(!p.icdCode&&!p.surgeryCode&&!p.procAnyCode&&!p.drugCode)return;
-    if(selSurg&&isDekidakaOp(selSurg)){setDekidakaWarn(`${selSurg}（${D.cn[selSurg]||""}）は包括評価対象外の手術です。出来高で算定されます。`);}
-    else{setDekidakaWarn("");}
-    const r=searchDPC(p);
-    setResults(r);setSearched(true);setLastParams(p);
-    setExpandedDPCs(getExpandedResults(r,p));
-    setDrillP1(null);setDrillP2(null);setRenderLimit(300);
-    if(isMobile)setMobileView("results");
+    const r=runSearch(p);
     const parts=[];
     if(icd)parts.push(icd);if(selSurg)parts.push(selSurg);if(selProc)parts.push(selProc);if(selDrug)parts.push(selDrug);
     addHistory({key:parts.join("|"),icd:icdIn.trim()||"",surg:surgIn.trim()||"",proc:procIn.trim()||"",drug:drugIn.trim()||"",
@@ -406,8 +414,10 @@ export default function DPCTool(){
   };
   const[cmpErr,setCmpErr]=useState("");
   const toggleCmp=r=>{setCmpList(p=>{if(p.find(x=>x.code===r.code)){setCmpErr("");return p.filter(x=>x.code!==r.code);}if(p.length>=4){setCmpErr("比較は最大4つまでです。追加するには既存の項目を外してください。");setTimeout(()=>setCmpErr(""),5000);return p;}setCmpErr("");return[...p,r];});};
+  const favRemoved=code=>setFavSet(s=>{const n=new Set(s);n.delete(code);return n;});
+  const removeFav=code=>{removeFavorite(code);favRemoved(code);};
   const toggleFav=r=>{
-    if(favSet.has(r.code)){removeFavorite(r.code);setFavSet(s=>{const n=new Set(s);n.delete(r.code);return n;});}
+    if(favSet.has(r.code))removeFav(r.code);
     else{addFavorite(r.code,r.clsName,r.surgeryName);setFavSet(s=>new Set(s).add(r.code));}
   };
   const restoreSearch=h=>{
@@ -415,13 +425,10 @@ export default function DPCTool(){
     setSurgIn(h.surg||"");setSelSurg(h.selSurg||"");
     setProcIn(h.proc||"");setSelProc(h.selProc||"");
     setDrugIn(h.drug||"");setSelDrug(h.selDrug||"");
-    setTimeout(()=>{
-      const p={};if(h.selIcd)p.icdCode=h.selIcd;if(h.selSurg)p.surgeryCode=h.selSurg;
-      if(h.selProc)p.procAnyCode=h.selProc;if(h.selDrug)p.drugCode=h.selDrug;
-      if(!p.icdCode&&!p.surgeryCode&&!p.procAnyCode&&!p.drugCode)return;
-      const r=searchDPC(p);setResults(r);setSearched(true);setLastParams(p);
-      setExpandedDPCs(getExpandedResults(r,p));setDrillP1(null);setDrillP2(null);
-    },0);
+    const p={};if(h.selIcd)p.icdCode=h.selIcd;if(h.selSurg)p.surgeryCode=h.selSurg;
+    if(h.selProc)p.procAnyCode=h.selProc;if(h.selDrug)p.drugCode=h.selDrug;
+    if(!p.icdCode&&!p.surgeryCode&&!p.procAnyCode&&!p.drugCode)return;
+    runSearch(p,{resetMdc:true});
   };
   const jumpToCode=code=>{
     const r=buildResultFromCode(code);if(!r)return;setDetail(r);
@@ -437,14 +444,14 @@ export default function DPCTool(){
   const sd=parseInt(stayDays)||0;
   const icdWarn=icdWarning(selIcd||icdIn.trim());
   const comboHints=[...new Set(results.flatMap(r=>r.comboHint||[]))];
-  const sorted=[...displayedResults].sort((a,b)=>{
+  const sorted=useMemo(()=>[...displayedResults].sort((a,b)=>{
     if(sortMode==="period")return(b.days[2]||0)-(a.days[2]||0);
     if(sd>0)return totalVal(b.days,b.points,sd)-totalVal(a.days,a.points,sd);
     const sv=a.surgVal.localeCompare(b.surgVal);if(sv!==0)return sv;
     const p2=corrNum(b.p2Val)-corrNum(a.p2Val);if(p2!==0)return p2;
     const p1=corrNum(b.p1Val)-corrNum(a.p1Val);if(p1!==0)return p1;
     return(b.points[0]||0)-(a.points[0]||0);
-  });
+  }),[displayedResults,sortMode,sd]);
 
   return(
     <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#F2F2F2",color:"#404040",fontFamily:F,overflow:"hidden"}}>
@@ -488,8 +495,9 @@ export default function DPCTool(){
           {/* Mode tabs */}
           <div role="tablist" style={{display:"flex",borderBottom:"1px solid #E0E0E0",flexShrink:0}}>
             {[["list","一覧検索"],["suggest","最適DPCサジェスト"]].map(([k,v])=>(
-              <button key={k} role="tab" aria-selected={mode===k} id={`tab-${k}`} aria-controls={`panel-${k}`}
+              <button key={k} role="tab" aria-selected={mode===k} id={`tab-${k}`} aria-controls={`panel-${k}`} tabIndex={mode===k?0:-1}
                 onClick={()=>setMode(k)}
+                onKeyDown={e=>{if(e.key==="ArrowRight"||e.key==="ArrowLeft"){e.preventDefault();const next=k==="list"?"suggest":"list";setMode(next);document.getElementById(`tab-${next}`)?.focus();}}}
                 style={{flex:1,padding:"10px 8px",border:"none",borderBottom:mode===k?"2px solid #262626":"2px solid transparent",
                   background:mode===k?"#FFFFFF":"#F5F5F5",color:mode===k?"#262626":"#737373",
                   fontWeight:mode===k?700:500,fontSize:12,cursor:"pointer",transition:"all .15s"}}>
@@ -582,8 +590,8 @@ export default function DPCTool(){
             <div style={{display:"flex",gap:8,alignItems:"center",flexWrap:"wrap",marginTop:searched&&(branchOptions.p1Items.length>0||branchOptions.p2Items.length>0||drillP1||drillP2)?8:0}}>
               {results.length>0&&<button onClick={()=>setShowIcd(true)} style={{padding:"6px 12px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#3B82F6",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s, border-color .15s"}}>ICD-10一覧</button>}
               <div style={{position:"relative"}}>
-                <button onClick={()=>setShowHistory(v=>!v)} style={{padding:"6px 12px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s, border-color .15s"}}>履歴</button>
-                {showHistory&&<HistoryPanel onClose={()=>setShowHistory(false)} onRestoreSearch={restoreSearch} onJumpToCode={jumpToCode} isMobile={isMobile}
+                <button onClick={()=>setShowHistory(v=>!v)} aria-expanded={showHistory} aria-haspopup="dialog" style={{padding:"6px 12px",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:12,fontWeight:500,transition:"background .15s, border-color .15s"}}>履歴</button>
+                {showHistory&&<HistoryPanel onClose={()=>setShowHistory(false)} onRestoreSearch={restoreSearch} onJumpToCode={jumpToCode} onRemoveFavorite={favRemoved} isMobile={isMobile}
                   cmpSet={new Set(cmpList.map(x=>x.code))}
                   onAddToCompare={code=>{const r=buildResultFromCode(code);if(r)toggleCmp(r);}}/>}
               </div>
@@ -764,20 +772,27 @@ export default function DPCTool(){
         setIcdIn(`${icd} ${D.icn[icd]||""}`);setSelIcd(icd);
         setSurgIn("");setSelSurg("");setProcIn("");setSelProc("");setDrugIn("");setSelDrug("");
         setDetail(null);
-        setTimeout(()=>{
-          const r2=searchDPC({icdCode:icd});setResults(r2);setSearched(true);
-          setExpandedDPCs(getExpandedResults(r2));setDrillP1(null);setDrillP2(null);
-          addHistory({key:icd,icd:`${icd} ${D.icn[icd]||""}`,surg:"",proc:"",drug:"",
-            selIcd:icd,selSurg:"",selProc:"",selDrug:"",count:r2.length,label:icd});
-        },0);
+        if(mode!=="list")setMode("list");
+        const r2=runSearch({icdCode:icd},{resetMdc:true});
+        addHistory({key:icd,icd:`${icd} ${D.icn[icd]||""}`,surg:"",proc:"",drug:"",
+          selIcd:icd,selSurg:"",selProc:"",selDrug:"",count:r2.length,label:icd});
       }}/>}
       {showIcd&&<IcdPanel results={results} onClose={()=>setShowIcd(false)} isMobile={isMobile}/>}
       {showDk&&<DekidakaPanel onClose={()=>setShowDk(false)} isMobile={isMobile}/>}
-      {showFb&&(
+      {showFb&&<FeedbackModal onClose={()=>setShowFb(false)} fbText={fbText} setFbText={setFbText} fbSent={fbSent} setFbSent={setFbSent}/>}
+    </div>
+  );
+}
+
+// ご意見・要望モーダル（送信先サーバーは無く、このブラウザの localStorage に保存する）
+function FeedbackModal({onClose,fbText,setFbText,fbSent,setFbSent}){
+  const ref=useModal(onClose);
+  const setShowFb=v=>{if(!v)onClose();};
+  return(
         <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.4)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:16}} onClick={e=>{if(e.target===e.currentTarget)setShowFb(false);}}>
-          <div style={{background:"#FFFFFF",borderRadius:12,padding:"24px 28px",width:"100%",maxWidth:440,boxShadow:"0 16px 48px rgba(0,0,0,.15)"}}>
+          <div ref={ref} role="dialog" aria-modal="true" aria-labelledby="fb-title" style={{background:"#FFFFFF",borderRadius:12,padding:"24px 28px",width:"100%",maxWidth:440,boxShadow:"0 16px 48px rgba(0,0,0,.15)"}}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
-              <div style={{fontSize:16,fontWeight:700,color:"#262626"}}>ご意見・改善要望</div>
+              <div id="fb-title" style={{fontSize:16,fontWeight:700,color:"#262626"}}>ご意見・改善要望</div>
               <button onClick={()=>setShowFb(false)} style={{background:"none",border:"none",cursor:"pointer",padding:4,color:"#737373",display:"flex"}} aria-label="閉じる">
                 <svg width="18" height="18" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
               </button>
@@ -785,13 +800,13 @@ export default function DPCTool(){
             {fbSent?(
               <div style={{textAlign:"center",padding:"20px 0"}}>
                 <div style={{fontSize:28,marginBottom:8}}>&#10003;</div>
-                <div style={{fontSize:14,color:"#404040",fontWeight:600}}>送信しました</div>
-                <div style={{fontSize:12,color:"#737373",marginTop:4}}>貴重なご意見ありがとうございます</div>
+                <div style={{fontSize:14,color:"#404040",fontWeight:600}}>このブラウザに保存しました</div>
+                <div style={{fontSize:12,color:"#737373",marginTop:4}}>ご意見は外部に送信されません。「エクスポート」でJSONを保存し、担当者へお送りください。</div>
                 <button onClick={()=>setShowFb(false)} style={{marginTop:16,padding:"8px 24px",background:"#262626",border:"none",borderRadius:6,color:"#fff",fontWeight:600,cursor:"pointer",fontSize:13}}>閉じる</button>
               </div>
             ):(
               <>
-                <div style={{fontSize:12,color:"#737373",marginBottom:8}}>不具合の報告や機能の改善要望をお寄せください。いただいた内容は今後の改善に活用いたします。</div>
+                <div style={{fontSize:12,color:"#737373",marginBottom:8}}>不具合の報告や機能の改善要望をお寄せください。入力内容はこのブラウザ内（localStorage）に保存されるだけで自動送信はされません。「エクスポート」で書き出して担当者へお渡しください。</div>
                 <textarea value={fbText} onChange={e=>setFbText(e.target.value)} placeholder="例：〇〇を検索したときに△△が表示されない、□□の機能がほしい、など" rows={5}
                   style={{width:"100%",padding:"10px 12px",border:"1.5px solid #E0E0E0",borderRadius:6,background:"#FAFAFA",color:"#404040",fontSize:13,outline:"none",resize:"vertical",boxSizing:"border-box",fontFamily:"inherit",transition:"border-color .15s"}}
                   onFocus={e=>{e.target.style.borderColor="#404040";}} onBlur={e=>{e.target.style.borderColor="#E0E0E0";}} />
@@ -807,7 +822,7 @@ export default function DPCTool(){
                     <button onClick={()=>setShowFb(false)} style={{padding:"8px 16px",background:"#F2F2F2",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:13,fontWeight:500}}>キャンセル</button>
                     <button onClick={()=>{if(!fbText.trim())return;addFeedback(fbText.trim());setFbSent(true);}} disabled={!fbText.trim()}
                       style={{padding:"8px 20px",background:fbText.trim()?"#262626":"#C0C0C0",border:"none",borderRadius:6,color:"#fff",fontWeight:700,cursor:fbText.trim()?"pointer":"not-allowed",fontSize:13,transition:"background .15s"}}>
-                      送信
+                      保存
                     </button>
                   </div>
                 </div>
@@ -815,7 +830,5 @@ export default function DPCTool(){
             )}
           </div>
         </div>
-      )}
-    </div>
   );
 }

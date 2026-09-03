@@ -1,11 +1,21 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { M } from "../styles";
 import { getHistory, clearHistory, getFavorites, removeFavorite } from "../storage";
+import useModal from "../useModal";
 
-export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, onAddToCompare, cmpSet, isMobile }) {
+export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, onAddToCompare, onRemoveFavorite, cmpSet, isMobile }) {
   const [tab, setTab] = useState("history");
+  const [, setTick] = useState(0);
   const history = getHistory();
   const favorites = getFavorites();
+  // Esc・フォーカストラップ（useModal）と、パネル外クリックで閉じる
+  // （呼び出し側は「履歴」ボタンと同じ position:relative の親に置くため、親の外側をクリックしたときだけ閉じる）
+  const ref = useModal(onClose);
+  useEffect(() => {
+    const onDown = (e) => { const wrap = ref.current?.parentElement || ref.current; if (wrap && !wrap.contains(e.target)) onClose(); };
+    const id = setTimeout(() => document.addEventListener("mousedown", onDown), 0);
+    return () => { clearTimeout(id); document.removeEventListener("mousedown", onDown); };
+  }, [onClose, ref]);
 
   const tabStyle = (active) => ({
     flex: 1, padding: "7px 0", background: active ? "#FAFAFA" : "transparent",
@@ -14,7 +24,7 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
   });
 
   return (
-    <div style={isMobile?{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 200, width: "90vw", maxHeight: "70vh",
+    <div ref={ref} role="dialog" aria-modal="true" aria-label="検索履歴とお気に入り" style={isMobile?{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%,-50%)", zIndex: 200, width: "90vw", maxHeight: "70vh",
       background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,.16)",
       display: "flex", flexDirection: "column" }:{ position: "absolute", top: "100%", left: 0, zIndex: 200, width: 420, maxHeight: 440,
       background: "#FFFFFF", border: "1px solid #E0E0E0", borderRadius: 8, boxShadow: "0 8px 32px rgba(0,0,0,.08)",
@@ -89,7 +99,7 @@ export default function HistoryPanel({ onClose, onRestoreSearch, onJumpToCode, o
                       padding: "2px 6px", fontSize: 11, flexShrink: 0, fontWeight: 600 }}>
                     {inCmp ? "比較中" : "+比較"}
                   </button>
-                  <button onClick={() => { removeFavorite(f.code); onClose(); }} aria-label="お気に入りから削除"
+                  <button onClick={() => { removeFavorite(f.code); onRemoveFavorite && onRemoveFavorite(f.code); setTick((t) => t + 1); }} aria-label="お気に入りから削除"
                     style={{ background: "none", border: "none", color: "#EF4444", cursor: "pointer",
                       padding: 6, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}><svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round"><line x1="2" y1="2" x2="8" y2="8"/><line x1="8" y1="2" x2="2" y2="8"/></svg></button>
                 </div>
