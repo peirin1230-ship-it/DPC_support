@@ -316,7 +316,8 @@ export function surgKey(r) {
  * 同じ分岐に複数の該当があれば相関値の大きい方（ツリー図で下＝高優先）を採る。
  * 返り値: { cons: Map(cls → {p1?, p2?}), procFound: Set, drugFound: Set }
  */
-export function procConstraints({ procAnyCode, drugCode } = {}, clsFilter) {
+export function procConstraints(params = {}, clsFilter) {
+  const { procCodes, drugCodes } = normalizeSearchParams(params);
   const cons = new Map(), procFound = new Set(), drugFound = new Set();
   const add = (table, key, code, found) => {
     for (const [c, grp] of Object.entries(table)) {
@@ -333,8 +334,8 @@ export function procConstraints({ procAnyCode, drugCode } = {}, clsFilter) {
       found.add(c);
     }
   };
-  if (procAnyCode) { add(D.p1, "p1", procAnyCode, procFound); add(D.p2, "p2", procAnyCode, procFound); }
-  if (drugCode) add(D.p2, "p2", drugCode, drugFound);
+  for (const code of procCodes) { add(D.p1, "p1", code, procFound); add(D.p2, "p2", code, procFound); }
+  for (const code of drugCodes) add(D.p2, "p2", code, drugFound);
   return { cons, procFound, drugFound };
 }
 /**
@@ -357,6 +358,7 @@ function markInputEffect(r, cls, info, co) {
   if (vals.length) { r.inputEffect = eff; r.procNeutral = vals.every((v) => v === "neutral"); }
   return r;
 }
+export const RESOURCE_DISEASE_NOTE = "医療資源病名は、入院期間中に最も医療資源を投入した傷病名を1つ選びます（コーディングテキスト III.2、保医発0321第6号 第2の1）。点数・期間の並び替えや出来高の絞り込みは、候補の整理と委員会での差額分析のための表示で、点数の高低で病名を選ぶためのものではありません。";
 export const INPUT_NEUTRAL_NOTE = "これらの候補では、入力した手術・処置等はDPCコードの桁を変えません（手術ありの区分で「なし、１,２あり」に統合される場合や、その区分に分岐が無い場合）。該当する手術を実施していればこれらのDPCになります。";
 /** DPC行が処置等制約（対応コード）に合うか。分岐なし(x)と縮約を考慮 */
 function matchProc(cls, info, co) {
@@ -377,31 +379,57 @@ function matchProc(cls, info, co) {
  *  - procAnyCode / drugCode: 処置等1・2の対応コードを特定（複数該当は高優先＝相関値大）。
  *    指定していない側の分岐は制約しない（ドリルダウンで絞り込む）。
  */
-export function searchDPC({ icdCode, surgeryCode, procAnyCode, drugCode }) {
-  if (!icdCode && !surgeryCode && !procAnyCode && !drugCode) return [];
+const toCodes = (single, many) => {
+  const a = [];
+  if (Array.isArray(many)) a.push(...many); else if (many) a.push(many);
+  if (single) a.push(single);
+  return [...new Set(a.map((x) => String(x ?? "").trim()).filter(Boolean))];
+};
+/** 検索条件を配列に正規化する（単数 icdCode/surgeryCode/procAnyCode/drugCode と複数 icdCodes/surgeryCodes/procCodes/drugCodes の両方を受け付ける） */
+export function normalizeSearchParams(p = {}) {
+  return {
+    icdCodes: toCodes(p.icdCode, p.icdCodes),
+    surgeryCodes: toCodes(p.surgeryCode, p.surgeryCodes),
+    procCodes: toCodes(p.procAnyCode, p.procCodes),
+    drugCodes: toCodes(p.drugCode, p.drugCodes),
+  };
+}
+/**
+ * 条件に合致するDPCを返す。各条件は複数指定できる（実施した手術・処置等をすべて入力すると「下から優先」で1区分に収束する）。
+ *  - icdCodes: 医療資源病名の候補（複数なら分類の和集合。M!!!!ルール含む）
+ *  - surgeryCodes: 実施した手術。分類ごとに「単独一致 or 組み合わせ全要素一致 → 区分番号が最小（ツリー図の下）」を採用し、
+ *    どれも定義テーブルに無ければ「その他の手術あり(97)」（surgFallback）。手術等管理料・輸血管理料は手術なし扱い（surgExcluded）。
+ *    採用した入力コードは surgBy、区分決定に使われなかった入力は surgUnused に入る。
+ *  - procCodes / drugCodes: 処置等1・2の対応コード（複数該当は相関値最大＝高優先）。指定していない側の分岐は制約しない。
+ */
+export function searchDPC(params = {}) {
+  const { icdCodes, surgeryCodes, procCodes, drugCodes } = normalizeSearchParams(params);
+  if (!icdCodes.length && !surgeryCodes.length && !procCodes.length && !drugCodes.length) return [];
   let targetCls = null;
-  if (icdCode) { targetCls = findCls(icdCode); if (!targetCls.length) return []; }
+  if (icdCodes.length) { targetCls = [...new Set(icdCodes.flatMap((c) => findCls(c)))]; if (!targetCls.length) return []; }
   const inTarget = (c) => !targetCls || targetCls.includes(c);
-  const surgCons = new Map(); // cls → surg digit
+  const surgCons = new Map(), surgBy = new Map(); // cls → 手術区分 / 区分を決めた入力コード
   const fallbackCls = new Set(), comboHints = new Map();
-  let surgExcluded = false;
+  const surgExcluded = surgeryCodes.some((c) => isNonSurgeryCode(c));
+  const performed = new Set(surgeryCodes.filter((c) => !isNonSurgeryCode(c) && c !== CODE_NO_SURGERY));
 
-  if (surgeryCode) {
-    let code = surgeryCode;
-    if (isNonSurgeryCode(code)) { code = CODE_NO_SURGERY; surgExcluded = true; }
-    if (code === CODE_NO_SURGERY) {
+  if (surgeryCodes.length) {
+    if (!performed.size) {
       for (const c of targetCls || Object.keys(D.cls)) surgCons.set(c, "99");
     } else {
+      // 単独コードの完全一致、または組み合わせ "K1+K2" の全要素が実施されている場合に一致
+      const full = (kc) => performed.has(kc) || (kc.includes("+") && kc.split("+").every((p) => performed.has(p)));
       for (const [c, si] of Object.entries(D.si)) {
         if (!inTarget(c)) continue;
-        let picked = null;
+        let picked = null, by = [];
         for (const [corr, idx] of Object.entries(si)) {
-          if (!slHasExact(D.sl[idx], code)) continue;
-          // 同一分類内で複数区分に一致する場合は高優先（相関値の小さい定義手術＝ツリー図の下）を採る
-          if (picked === null || surgPriority(corr) > surgPriority(picked)) picked = corr;
+          const matched = (D.sl[idx] || []).filter(full);
+          if (!matched.length) continue;
+          // 複数区分に一致する場合は高優先（番号の小さい定義手術＝ツリー図の下）を採る
+          if (picked === null || surgPriority(corr) > surgPriority(picked)) { picked = corr; by = matched; }
         }
-        if (picked !== null) surgCons.set(c, picked);
-        const hints = Object.values(si).flatMap((idx) => combosContaining(D.sl[idx], code));
+        if (picked !== null) { surgCons.set(c, picked); surgBy.set(c, [...new Set(by)]); }
+        const hints = [...performed].flatMap((code) => Object.values(si).flatMap((idx) => combosContaining(D.sl[idx], code))).filter((h) => !full(h));
         if (hints.length) comboHints.set(c, [...new Set(hints)]);
       }
       if (targetCls) {
@@ -415,14 +443,14 @@ export function searchDPC({ icdCode, surgeryCode, procAnyCode, drugCode }) {
     }
   }
 
-  const { cons: pcons, procFound, drugFound } = procConstraints({ procAnyCode, drugCode }, (c) => inTarget(c) && (!surgeryCode || surgCons.has(c)));
+  const { cons: pcons, procFound, drugFound } = procConstraints({ procCodes, drugCodes }, (c) => inTarget(c) && (!surgeryCodes.length || surgCons.has(c)));
 
   const candidates = targetCls || [...new Set([...surgCons.keys(), ...pcons.keys()])];
   const results = [];
   for (const cls of candidates) {
-    if (surgeryCode && !surgCons.has(cls)) continue;
-    if (procAnyCode && !procFound.has(cls)) continue;
-    if (drugCode && !drugFound.has(cls)) continue;
+    if (surgeryCodes.length && !surgCons.has(cls)) continue;
+    if (procCodes.length && !procFound.has(cls)) continue;
+    if (drugCodes.length && !drugFound.has(cls)) continue;
     const surg = surgCons.get(cls);
     const co = pcons.get(cls);
     for (const code of dpcCodesOf(cls)) {
@@ -433,6 +461,12 @@ export function searchDPC({ icdCode, surgeryCode, procAnyCode, drugCode }) {
       if (fallbackCls.has(cls)) r.surgFallback = true;
       if (surgExcluded) r.surgExcluded = true;
       if (comboHints.has(cls)) r.comboHint = comboHints.get(cls);
+      if (surgBy.has(cls)) {
+        const by = surgBy.get(cls);
+        r.surgBy = by;
+        const used = new Set(by.flatMap((k) => k.split("+")));
+        r.surgUnused = [...performed].filter((k) => !used.has(k));
+      } else if (performed.size) r.surgUnused = [...performed];
       results.push(r);
     }
   }
@@ -574,13 +608,14 @@ function aliasHits(qn, filter) {
   const qd = dh(qn), out = [], seen = new Set();
   const hits = [];
   for (const { alias, an, ad, codes } of procAliasIndex()) {
-    const sc = an === qn || ad === qd ? 0 : (qn.length >= 2 && (an.startsWith(qn) || ad.startsWith(qd))) ? 1 : -1;
+    const sc = an === qn || ad === qd ? 0 : (qn.length >= 3 && (an.startsWith(qn) || ad.startsWith(qd))) ? 1 : -1;
     if (sc >= 0) hits.push({ alias, codes, sc });
   }
   hits.sort((a, b) => a.sc - b.sc || a.alias.localeCompare(b.alias));
   for (const { alias, codes } of hits) for (const c of codes) {
     if (seen.has(c) || !filter(c)) continue;
     seen.add(c); out.push({ code: c, alias });
+    if (out.length >= 40) return out; // 候補一覧が長くなりすぎないよう上限
   }
   return out;
 }
@@ -684,8 +719,9 @@ export function searchDrug(q) {
 }
 
 /* ── 該当なし時のヒント ── */
-export function getNoResultHints({ surgeryCode, procAnyCode, drugCode }) {
-  if (!procAnyCode && !drugCode) return null;
+export function getNoResultHints(params = {}) {
+  const { procCodes, drugCodes } = normalizeSearchParams(params);
+  if (!procCodes.length && !drugCodes.length) return null;
   const evalItems = [];
   const collect = (table, code, branch) => {
     for (const [cls, grp] of Object.entries(table)) {
@@ -699,10 +735,10 @@ export function getNoResultHints({ surgeryCode, procAnyCode, drugCode }) {
       }
     }
   };
-  if (procAnyCode) { collect(D.p1, procAnyCode, "処置1"); collect(D.p2, procAnyCode, "処置2"); }
-  if (drugCode) collect(D.p2, drugCode, "処置2");
-  const code = procAnyCode || drugCode;
-  return { code, name: D.cn[code] || "", evalItems };
+  for (const c of procCodes) { collect(D.p1, c, "処置1"); collect(D.p2, c, "処置2"); }
+  for (const c of drugCodes) collect(D.p2, c, "処置2");
+  const code = procCodes[0] || drugCodes[0];
+  return { code, name: D.cn[code] || "", evalItems, codes: [...procCodes, ...drugCodes] };
 }
 
 /** 分類内で code が属する対応コード（複数該当は高優先＝相関値大） */
@@ -717,8 +753,13 @@ export function findCorrValForCls(cls, type, code) {
 /* ── 一覧検索: 全分岐展開 ── */
 export function getExpandedResults(baseResults, searchParams) {
   const pairs = new Set();
-  for (const r of baseResults) pairs.add(`${r.cls}_${r.surgVal}`);
-  const hasProc = !!(searchParams && (searchParams.procAnyCode || searchParams.drugCode));
+  // 分類ごとの手術決定に関する情報（採用した手術・不採用の手術・97フォールバック等）は展開結果にも引き継ぐ
+  const clsFlags = new Map();
+  for (const r of baseResults) {
+    pairs.add(`${r.cls}_${r.surgVal}`);
+    if (!clsFlags.has(r.cls)) clsFlags.set(r.cls, { surgBy: r.surgBy, surgUnused: r.surgUnused, surgFallback: r.surgFallback, surgExcluded: r.surgExcluded, comboHint: r.comboHint });
+  }
+  const hasProc = !!searchParams && (() => { const np = normalizeSearchParams(searchParams); return np.procCodes.length > 0 || np.drugCodes.length > 0; })();
   const clsSet = new Set([...pairs].map((p) => p.slice(0, 6)));
   const pcons = hasProc ? procConstraints(searchParams, (c) => clsSet.has(c)).cons : null;
   const expanded = [];
@@ -728,7 +769,10 @@ export function getExpandedResults(baseResults, searchParams) {
       const info = D.dpc[code];
       if (!pairs.has(`${cls}_${info[3]}`)) continue;
       if (!matchProc(cls, info, co)) continue;
-      expanded.push(markInputEffect(toResult(code, info), cls, info, co));
+      const r = markInputEffect(toResult(code, info), cls, info, co);
+      const f = clsFlags.get(cls);
+      if (f) for (const k of ["surgBy", "surgUnused", "surgFallback", "surgExcluded", "comboHint"]) if (f[k] !== undefined) r[k] = f[k];
+      expanded.push(r);
     }
   }
   return expanded;
@@ -736,7 +780,7 @@ export function getExpandedResults(baseResults, searchParams) {
 
 /* ── サジェスト: 候補展開 ── */
 export function expandForSuggest(baseResults, searchParams) {
-  const hasProc = !!(searchParams && (searchParams.procAnyCode || searchParams.drugCode));
+  const hasProc = !!searchParams && (() => { const np = normalizeSearchParams(searchParams); return np.procCodes.length > 0 || np.drugCodes.length > 0; })();
   const clsMax = new Map();
   for (const r of baseResults) {
     const sc = corrNum(r.surgVal);

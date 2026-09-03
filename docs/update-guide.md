@@ -119,7 +119,7 @@ node scripts/generate-data.mjs
 | D.da | 317 | 別名JSONの件数 |
 | D.cc | 153 | CCPM対応の有無で変動 |
 | D.dn | 83 | 病名別名JSONの件数 |
-| D.pn | 123 | 手術・処置等別名JSONの件数 |
+| D.pn | 1,708 | 手術・処置等別名JSONの件数 |
 
 ### Step 5: 薬剤別名の追加（任意）
 

@@ -8,7 +8,7 @@ import {
   searchDPC, getExpandedResults, expandForSuggest, filterDrillDown, getBranchOptions,
   getSubdiagICDs, getSurgeryOptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults,
   buildResultFromCode, resultsOfClass, dpcCodesOf, isDekidakaOp, getSimilarClassifications, searchDrug, searchDisease, searchSurg,
-  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage, searchProc, inputEffect } from "../src/utils.js";
+  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage, searchProc, inputEffect, normalizeSearchParams, getNoResultHints } from "../src/utils.js";
 
 const X = "x";
 const first = (arr, pred) => arr.find(pred);
@@ -433,5 +433,39 @@ describe("入力した処置等が分岐に影響するか（procNeutral）と�
     assert.ok(pci.length > 0 && pci[0].code.startsWith("K54") && String(pci[0].tag).startsWith("別名"));
     assert.ok(searchProc("ケモ").some((x) => x.code === "0005"));
     for (const [alias, codes] of Object.entries(D.pn)) assert.ok(codes.every((c) => D.cn[c] !== undefined || D.dk[c] !== undefined), alias);
+  });
+});
+
+describe("複数入力の一括判定（手術・処置等・薬剤・病名候補を複数指定）", () => {
+  test("単数・複数どちらの指定も同じ結果になる", () => {
+    assert.deepEqual(normalizeSearchParams({ icdCode: "I200", surgeryCodes: ["K5493", "K5493"], procAnyCode: "G005" }), { icdCodes: ["I200"], surgeryCodes: ["K5493"], procCodes: ["G005"], drugCodes: [] });
+    const a = searchDPC({ icdCode: "I200", surgeryCode: "K5493" }).map((r) => r.code).sort();
+    const b = searchDPC({ icdCodes: ["I200"], surgeryCodes: ["K5493"] }).map((r) => r.code).sort();
+    assert.deepEqual(a, b);
+  });
+  test("複数手術は「単独一致 → 組み合わせは全要素一致 → 区分番号が小さい方」で1区分に収束し、採用コードを surgBy に残す", () => {
+    // PCI(02) + 心カテ＋DD01 + 輸血管理料（手術なし扱い）→ 02 に収束、処置等1は縮約で桁0
+    const r = searchDPC({ icdCodes: ["I200"], surgeryCodes: ["K5493", "K920-2"], procCodes: ["D2061+DD01"] });
+    assert.ok(r.length > 0 && r.every((x) => x.surgVal === "02" && x.p1Val === "0" && x.surgExcluded === true));
+    assert.deepEqual(r[0].surgBy, ["K5493"]);
+    // 組み合わせ手術は全要素が入力されたときだけ一致し、単独より高優先の区分になる
+    const combo = searchDPC({ icdCodes: ["C710"], surgeryCodes: ["K1691", "K939-2"] });
+    assert.ok(combo.length > 0 && combo.every((x) => x.surgVal === "02"));
+    assert.deepEqual(combo[0].surgBy, ["K1691+K939-2"]);
+    assert.deepEqual(combo[0].surgUnused, []);
+    const single = searchDPC({ icdCodes: ["C710"], surgeryCodes: ["K1691"] });
+    assert.ok(single.length > 0 && single.every((x) => x.surgVal === "03"));
+    // 区分決定に使われなかった手術（その分類の定義テーブルに無い）は surgUnused に入る
+    const extra = searchDPC({ icdCodes: ["I200"], surgeryCodes: ["K5493", "K386"] });
+    assert.ok(extra.every((x) => x.surgVal === "02" && x.surgUnused.includes("K386")));
+  });
+  test("複数の処置等・薬剤は相関値最大を採用し、複数の病名候補は分類の和集合になる", () => {
+    const r = searchDPC({ icdCodes: ["I200"], surgeryCodes: ["KKK0"], procCodes: ["G005", "J0451"], drugCodes: ["0022"] });
+    assert.ok(r.length > 0 && r.every((x) => x.surgVal === "99" && x.p2Val === "3"), "tPA（相関値3）が採用される");
+    const two = searchDPC({ icdCodes: ["I200", "I219"] });
+    assert.deepEqual([...new Set(two.map((x) => x.cls))].sort(), ["050030", "050050"]);
+    // 分類に解決できないICDが混ざっていても、解決できる分類で検索できる
+    assert.equal(searchDPC({ icdCodes: ["I200", "R509"] }).length, searchDPC({ icdCodes: ["I200"] }).length);
+    assert.ok(getNoResultHints({ procCodes: ["D4195"] }).evalItems.length > 0);
   });
 });
