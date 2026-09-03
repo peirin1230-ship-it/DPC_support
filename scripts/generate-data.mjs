@@ -286,7 +286,7 @@ console.log(`  除外: 抹消 ${rowStats.deleted} 行, 失効 ${rowStats.expired
 const D = {
   meta: {}, dpc: {}, cls: {}, lb: {}, br: {}, p1: {}, p2: {}, pc: {},
   si: {}, sl: [], icd: {}, icn: {}, sd: {}, sv: {}, dk: {}, dx: { dr: [], pt: [] },
-  cn: {}, da: {}, dn: {}, pt: {}, cc: {}, cv: {},
+  cn: {}, da: {}, dn: {}, pn: {}, pt: {}, cc: {}, cv: {},
 };
 const warnings = [];
 const warn = (msg) => warnings.push(msg);
@@ -773,6 +773,26 @@ console.log("D.dn 生成中...");
   }
   if (orphans.length) console.log(`  [NOTE] ICDテーブルに存在しないコードを除外: ${orphans.join(", ")}`);
   console.log(`  → D.dn: ${Object.keys(D.dn).length} 件`);
+}
+
+// ── 手術・処置等の別名（現場用語） → D.pn（database/procedure-aliases.json、公式Excelには含まれない運用データ） ──
+console.log("D.pn 生成中...");
+{
+  const aliasFile = join(DB_DIR, "procedure-aliases.json");
+  let aliases = {};
+  if (existsSync(aliasFile)) aliases = JSON.parse(readFileSync(aliasFile, "utf-8"));
+  else console.log(`  [WARN] 手術・処置等別名ファイルがありません: ${aliasFile}`);
+  const known = new Set([...D.sl.flat(), ...Object.values(D.p1).flatMap((g) => Object.values(g).flat()), ...Object.values(D.p2).flatMap((g) => Object.values(g).flat()), ...Object.keys(D.dk)]);
+  const orphans = [];
+  for (const alias of Object.keys(aliases).sort()) {
+    if (alias.startsWith("_")) continue;
+    const codes = [...new Set((aliases[alias] || []).map(str).filter(Boolean))];
+    const ok = codes.filter((c) => known.has(c));
+    for (const c of codes) if (!known.has(c)) orphans.push(`${alias}→${c}`);
+    if (ok.length) D.pn[str(alias).trim()] = ok;
+  }
+  if (orphans.length) console.log(`  [NOTE] 定義テーブルに存在しないコードを除外: ${orphans.join(", ")}`);
+  console.log(`  → D.pn: ${Object.keys(D.pn).length} 件`);
 }
 
 // ── メタ情報 ──

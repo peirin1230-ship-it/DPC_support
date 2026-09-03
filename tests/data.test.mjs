@@ -186,7 +186,7 @@ describe("D.cv（変換テーブルの対応コード→桁の縮約）", () => 
   });
 });
 
-describe("D.dk / D.dx / D.da / D.dn / D.cc", () => {
+describe("D.dk / D.dx / D.da / D.dn / D.pn / D.cc", () => {
   test("出来高算定コードは K/D コード形式", () => {
     assert.ok(Object.keys(D.dk).length > 0);
     for (const [c, n] of Object.entries(D.dk)) { assert.match(c, /^[A-Z]\d/, c); assert.ok(n); }
@@ -205,6 +205,15 @@ describe("D.dk / D.dx / D.da / D.dn / D.cc", () => {
       assert.ok(alias && !alias.startsWith("_"), alias);
       assert.ok(Array.isArray(codes) && codes.length > 0, alias);
       for (const c of codes) assert.ok(D.icn[c] !== undefined, `${alias}: ${c} がICDテーブルにない`);
+    }
+  });
+  test("手術・処置等の別名（D.pn）は定義テーブルのコードのみを指す", () => {
+    assert.ok(Object.keys(D.pn).length > 0);
+    const known = new Set([...D.sl.flat(), ...Object.values(D.p1).flatMap((g) => Object.values(g).flat()), ...Object.values(D.p2).flatMap((g) => Object.values(g).flat()), ...Object.keys(D.dk)]);
+    for (const [alias, codes] of Object.entries(D.pn)) {
+      assert.ok(alias && !alias.startsWith("_"), alias);
+      assert.ok(Array.isArray(codes) && codes.length > 0, alias);
+      for (const c of codes) assert.ok(known.has(c), `${alias}: ${c} が定義テーブルにない`);
     }
   });
   test("CCPM対応は既存DPCコードを指す", () => {

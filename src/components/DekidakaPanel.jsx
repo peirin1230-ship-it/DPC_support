@@ -27,7 +27,7 @@ export default function DekidakaPanel({ onClose, isMobile }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="出来高算定（包括対象外）一覧" style={{ background: "#FFFFFF", borderRadius: isMobile ? 0 : 12, border: isMobile ? "none" : "1px solid #E0E0E0", boxShadow: isMobile ? "none" : "0 16px 48px rgba(0,0,0,.12)", maxWidth: isMobile ? "100vw" : "90vw", width: isMobile ? "100%" : 680, maxHeight: isMobile ? "100vh" : "85vh", height: isMobile ? "100vh" : "auto", display: "flex", flexDirection: "column", padding: isMobile ? 12 : 20 }} onClick={e => e.stopPropagation()}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="出来高算定（包括対象外）一覧" style={{ background: "#FFFFFF", borderRadius: isMobile ? 0 : 12, border: isMobile ? "none" : "1px solid #E0E0E0", boxShadow: isMobile ? "none" : "0 16px 48px rgba(0,0,0,.12)", maxWidth: isMobile ? "100vw" : "90vw", width: isMobile ? "100%" : 680, maxHeight: isMobile ? "100dvh" : "85vh", height: isMobile ? "100dvh" : "auto", display: "flex", flexDirection: "column", padding: isMobile ? 12 : 20 }} onClick={e => e.stopPropagation()}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
           <div>
             <div style={{ fontSize: 16, fontWeight: 700, color: "#262626" }}>出来高算定（包括対象外）一覧</div>

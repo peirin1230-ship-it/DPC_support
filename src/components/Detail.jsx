@@ -60,7 +60,7 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
 
   return (
     <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", zIndex: 1000, display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`DPC詳細 ${r.code}`} style={{ background: "#FFFFFF", borderRadius: isMobile ? 0 : 12, border: isMobile ? "none" : "1px solid #E0E0E0", boxShadow: isMobile ? "none" : "0 16px 48px rgba(0,0,0,.12)", maxWidth: isMobile ? "100vw" : "90vw", width: isMobile ? "100%" : 520, maxHeight: isMobile ? "100vh" : "85vh", height: isMobile ? "100vh" : "auto", overflow: "auto", padding: 0 }} onClick={e => e.stopPropagation()}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`DPC詳細 ${r.code}`} style={{ background: "#FFFFFF", borderRadius: isMobile ? 0 : 12, border: isMobile ? "none" : "1px solid #E0E0E0", boxShadow: isMobile ? "none" : "0 16px 48px rgba(0,0,0,.12)", maxWidth: isMobile ? "100vw" : "90vw", width: isMobile ? "100%" : 520, maxHeight: isMobile ? "100dvh" : "85vh", height: isMobile ? "100dvh" : "auto", overflow: "auto", padding: 0 }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: "16px 20px", borderBottom: "1px solid #E0E0E0", display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 2 }}>

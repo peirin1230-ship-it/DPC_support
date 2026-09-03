@@ -205,7 +205,7 @@ export default function CompareModal({items,onClose,sd,isMobile}){
 
   return(
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.3)",zIndex:1000,display:"flex",alignItems:"center",justifyContent:"center",padding:isMobile?0:20}} onClick={onClose}>
-      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="DPC比較" style={{background:"#FFFFFF",borderRadius:isMobile?0:12,border:isMobile?"none":"1px solid #E0E0E0",boxShadow:isMobile?"none":"0 16px 48px rgba(0,0,0,.12)",maxWidth:isMobile?"100vw":"94vw",maxHeight:isMobile?"100vh":"85vh",width:isMobile?"100%":"auto",height:isMobile?"100vh":"auto",overflow:"auto",padding:isMobile?12:20}} onClick={e=>e.stopPropagation()}>
+      <div ref={modalRef} role="dialog" aria-modal="true" aria-label="DPC比較" style={{background:"#FFFFFF",borderRadius:isMobile?0:12,border:isMobile?"none":"1px solid #E0E0E0",boxShadow:isMobile?"none":"0 16px 48px rgba(0,0,0,.12)",maxWidth:isMobile?"100vw":"94vw",maxHeight:isMobile?"100dvh":"85vh",width:isMobile?"100%":"auto",height:isMobile?"100dvh":"auto",overflow:"auto",padding:isMobile?12:20}} onClick={e=>e.stopPropagation()}>
         <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
           <div style={{fontSize:16,fontWeight:700,color:"#262626"}}>DPC比較{sd?` （${sd}日入院）`:""}</div>
           <button onClick={onClose} aria-label="閉じる" style={{background:"#F5F5F5",border:"none",color:"#737373",cursor:"pointer",width:40,height:40,borderRadius:8,transition:"background .15s",display:"flex",alignItems:"center",justifyContent:"center"}}

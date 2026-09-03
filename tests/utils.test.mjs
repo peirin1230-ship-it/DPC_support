@@ -8,7 +8,7 @@ import {
   searchDPC, getExpandedResults, expandForSuggest, filterDrillDown, getBranchOptions,
   getSubdiagICDs, getSurgeryOptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults,
   buildResultFromCode, resultsOfClass, dpcCodesOf, isDekidakaOp, getSimilarClassifications, searchDrug, searchDisease, searchSurg,
-  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage } from "../src/utils.js";
+  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage, searchProc, inputEffect } from "../src/utils.js";
 
 const X = "x";
 const first = (arr, pred) => arr.find(pred);
@@ -404,5 +404,34 @@ describe("病名・ICD入力の正規化と検索候補", () => {
     assert.match(icdNotFoundMessage("Z000"), /Zコード/);
     assert.match(icdNotFoundMessage("B95"), /選択できません/);
     assert.match(icdNotFoundMessage("A999"), /収載されていません/);
+  });
+});
+
+describe("入力した処置等が分岐に影響するか（procNeutral）と手術・処置等の別名", () => {
+  test("狭心症 + 心カテ＋DD01: 手術なし(99)は処置等1=2で分岐、PCI(02)は縮約で「なし」と同じ桁、97は分岐なし", () => {
+    const p = { icdCode: "I200", procAnyCode: "D2061+DD01" };
+    const r = searchDPC(p);
+    const by = (sv) => r.filter((x) => x.surgVal === sv);
+    assert.ok(by("99").length > 0 && by("99").every((x) => x.p1Val === "2" && x.procNeutral === false));
+    assert.ok(by("02").length > 0 && by("02").every((x) => x.p1Val === "0" && x.procNeutral === true));
+    assert.ok(by("97").length > 0 && by("97").every((x) => x.procNeutral === true));
+    // 一覧の展開結果・サジェストの展開結果にも同じフラグが付く
+    for (const rows of [getExpandedResults(r, p), expandForSuggest(r, p).expanded]) {
+      assert.ok(rows.some((x) => x.procNeutral === true) && rows.some((x) => x.procNeutral === false));
+    }
+    const opts = getSurgeryOptionsFromResults(expandForSuggest(r, p).expanded);
+    assert.equal(opts.find((o) => o.rawVal === "02").neutral, true);
+    assert.equal(opts.find((o) => o.rawVal === "99").neutral, false);
+    // 処置等を指定しない検索ではフラグは付かない
+    assert.ok(searchDPC({ icdCode: "I200" }).every((x) => x.procNeutral === undefined));
+  });
+  test("別名辞書（D.pn）: FFR/QFR → 心カテ＋血管内超音波検査等加算、PCI → 経皮的冠動脈ステント留置術等", () => {
+    const ffr = searchProc("FFR");
+    assert.ok(ffr.length >= 2 && ffr.every((x) => /\+DD01$/.test(x.code) && String(x.tag).startsWith("別名")));
+    assert.ok(searchProc("qfr").some((x) => x.code === "D2061+DD01"));
+    const pci = searchSurg("PCI");
+    assert.ok(pci.length > 0 && pci[0].code.startsWith("K54") && String(pci[0].tag).startsWith("別名"));
+    assert.ok(searchProc("ケモ").some((x) => x.code === "0005"));
+    for (const [alias, codes] of Object.entries(D.pn)) assert.ok(codes.every((c) => D.cn[c] !== undefined || D.dk[c] !== undefined), alias);
   });
 });

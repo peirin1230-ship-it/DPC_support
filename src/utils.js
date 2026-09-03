@@ -337,6 +337,27 @@ export function procConstraints({ procAnyCode, drugCode } = {}, clsFilter) {
   if (drugCode) add(D.p2, "p2", drugCode, drugFound);
   return { cons, procFound, drugFound };
 }
+/**
+ * 入力した処置等（対応コード）が、そのDPC行の手術区分で分岐に影響するか。
+ *  "branch": 入力によって桁が変わる（例: 手術なし 99 で 処置等1 2）
+ *  "neutral": その手術区分では分岐が無い(x)か、縮約で「なし」と同じ桁になる（例: PCI あり では「なし、１,２あり」）
+ */
+export function inputEffect(cls, info, co) {
+  const one = (type, corr, pos) => {
+    if (corr === undefined || corr === null) return null;
+    if (isNA(info[pos])) return "neutral";
+    return corrToDigit(cls, info[3], type, corr) === corrToDigit(cls, info[3], type, "0") ? "neutral" : "branch";
+  };
+  return { p1: one("1", co.p1, 4), p2: one("2", co.p2, 5) };
+}
+function markInputEffect(r, cls, info, co) {
+  if (!co) return r;
+  const eff = inputEffect(cls, info, co);
+  const vals = [eff.p1, eff.p2].filter(Boolean);
+  if (vals.length) { r.inputEffect = eff; r.procNeutral = vals.every((v) => v === "neutral"); }
+  return r;
+}
+export const INPUT_NEUTRAL_NOTE = "これらの候補では、入力した手術・処置等はDPCコードの桁を変えません（手術ありの区分で「なし、１,２あり」に統合される場合や、その区分に分岐が無い場合）。該当する手術を実施していればこれらのDPCになります。";
 /** DPC行が処置等制約（対応コード）に合うか。分岐なし(x)と縮約を考慮 */
 function matchProc(cls, info, co) {
   if (!co) return true;
@@ -408,7 +429,7 @@ export function searchDPC({ icdCode, surgeryCode, procAnyCode, drugCode }) {
       const info = D.dpc[code];
       if (!matchVal(info[3], surg)) continue;
       if (!matchProc(cls, info, co)) continue;
-      const r = toResult(code, info);
+      const r = markInputEffect(toResult(code, info), cls, info, co);
       if (fallbackCls.has(cls)) r.surgFallback = true;
       if (surgExcluded) r.surgExcluded = true;
       if (comboHints.has(cls)) r.comboHint = comboHints.get(cls);
@@ -539,10 +560,43 @@ export function resolveIcdInput(text) {
  * 出来高算定手術等コード（D.dk）、手術等管理料・輸血管理料（手術なし扱い）、
  * 定義テーブルにないKコードそのもの（その他の手術あり扱い）も候補に出す。
  */
+/* ── 手術・処置等の別名（現場用語 → コード、database/procedure-aliases.json 由来） ── */
+let _procAliasIndex = null;
+function procAliasIndex() {
+  if (!_procAliasIndex) {
+    _procAliasIndex = [];
+    for (const [alias, codes] of Object.entries(D.pn || {})) _procAliasIndex.push({ alias, an: normalize(alias), ad: dh(normalize(alias)), codes });
+  }
+  return _procAliasIndex;
+}
+/** 別名辞書に一致するコード（filter で対象コード集合を絞る）。完全一致 > 前方一致（2文字以上） */
+function aliasHits(qn, filter) {
+  const qd = dh(qn), out = [], seen = new Set();
+  const hits = [];
+  for (const { alias, an, ad, codes } of procAliasIndex()) {
+    const sc = an === qn || ad === qd ? 0 : (qn.length >= 2 && (an.startsWith(qn) || ad.startsWith(qd))) ? 1 : -1;
+    if (sc >= 0) hits.push({ alias, codes, sc });
+  }
+  hits.sort((a, b) => a.sc - b.sc || a.alias.localeCompare(b.alias));
+  for (const { alias, codes } of hits) for (const c of codes) {
+    if (seen.has(c) || !filter(c)) continue;
+    seen.add(c); out.push({ code: c, alias });
+  }
+  return out;
+}
+let _surgCodeSet = null;
+function surgCodeSet() {
+  if (!_surgCodeSet) _surgCodeSet = new Set(D.sl.flat());
+  return _surgCodeSet;
+}
 export function searchSurg(q) {
   if (!q || q.length < 1) return [];
   const qn = normalize(q), qd = dh(qn);
   const r = [], seen = new Set();
+  for (const { code: kc, alias } of aliasHits(qn, (c) => surgCodeSet().has(c) || !!D.dk?.[c])) {
+    r.push({ code: kc, name: D.cn[kc] || D.dk?.[kc] || "", dk: isDekidakaOp(kc), tag: `別名: ${alias}` });
+    seen.add(kc);
+  }
   for (const si of Object.values(D.si)) {
     for (const idx of Object.values(si)) {
       for (const kc of D.sl[idx] || []) {
@@ -571,10 +625,19 @@ export function searchSurg(q) {
   return r;
 }
 
+let _procCodeSet = null;
+function procCodeSet() {
+  if (!_procCodeSet) _procCodeSet = new Set([...Object.values(D.p1), ...Object.values(D.p2)].flatMap((g) => Object.values(g).flat()));
+  return _procCodeSet;
+}
 export function searchProc(q) {
   if (!q || q.length < 1) return [];
   const qn = normalize(q), qd = dh(qn);
   const r = [], seen = new Set();
+  for (const { code: c, alias } of aliasHits(qn, (c) => procCodeSet().has(c))) {
+    r.push({ code: c, name: D.cn[c] || "", tag: `別名: ${alias}` });
+    seen.add(c);
+  }
   const scan = (table, tag) => {
     for (const grp of Object.values(table)) {
       for (const codes of Object.values(grp)) {
@@ -665,7 +728,7 @@ export function getExpandedResults(baseResults, searchParams) {
       const info = D.dpc[code];
       if (!pairs.has(`${cls}_${info[3]}`)) continue;
       if (!matchProc(cls, info, co)) continue;
-      expanded.push(toResult(code, info));
+      expanded.push(markInputEffect(toResult(code, info), cls, info, co));
     }
   }
   return expanded;
@@ -688,7 +751,7 @@ export function expandForSuggest(baseResults, searchParams) {
       const info = D.dpc[code];
       if (corrNum(info[3]) > maxSurg) continue;
       if (!matchProc(cls, info, co)) continue;
-      expanded.push(toResult(code, info));
+      expanded.push(markInputEffect(toResult(code, info), cls, info, co));
     }
   }
   return { expanded };
@@ -801,9 +864,11 @@ export function getSurgeryOptionsFromResults(expandedDPCs) {
     const gKey = surgKey(r);
     const label = isNA(r.surgVal) ? NO_SURG_BRANCH_LABEL : r.surgeryName || "なし";
     let g = groups.get(gKey);
-    if (!g) { groups.set(gKey, (g = { surgVal: gKey, rawVal: r.surgVal, label, maxPts: 0, dk: true })); pairSeen.set(gKey, new Set()); }
+    if (!g) { groups.set(gKey, (g = { surgVal: gKey, rawVal: r.surgVal, label, maxPts: 0, dk: true, neutral: true, hasInput: false })); pairSeen.set(gKey, new Set()); }
     if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
     if (!r.isDekidaka) g.dk = false;
+    if (r.inputEffect) g.hasInput = true;
+    if (!r.procNeutral) g.neutral = false;
     pairSeen.get(gKey).add(r.cls);
   }
   for (const [gKey, g] of groups) {

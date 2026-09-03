@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import { pushNav, navDepth } from "./navStack";
 
 const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 // 開いているモーダルのスタック。Escキーは最前面のモーダルだけが処理する
@@ -15,6 +16,11 @@ export default function useModal(onClose) {
   useEffect(() => {
     const token = {};
     stack.push(token);
+    // ブラウザの「戻る」でこのモーダルを閉じる（スマートフォンの戻る操作に対応）
+    const releaseNav = pushNav(() => onCloseRef.current?.());
+    // モーダル表示中は背面（body）のスクロールを止める（モバイルでは body がスクロールする）
+    const prevOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
     // モーダルが開いたら前のフォーカスを保存し、モーダル内にフォーカスを移す
     prevFocus.current = document.activeElement;
     const el = ref.current;
@@ -42,6 +48,8 @@ export default function useModal(onClose) {
       document.removeEventListener("keydown", handleKeyDown);
       const i = stack.indexOf(token);
       if (i >= 0) stack.splice(i, 1);
+      if (stack.length === 0) document.body.style.overflow = prevOverflow;
+      releaseNav();
       // モーダルが閉じたら前のフォーカスを復帰
       const prev = prevFocus.current;
       if (prev && typeof prev.focus === "function") prev.focus();

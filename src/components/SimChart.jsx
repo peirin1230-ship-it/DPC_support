@@ -71,7 +71,7 @@ export default function SimChart({ r, sd, onClose, isMobile }) {
       display: "flex", alignItems: "center", justifyContent: "center", padding: isMobile ? 0 : 20 }} onClick={onClose}>
       <div ref={modalRef} role="dialog" aria-modal="true" aria-label={`${r.code} 点数推移グラフ`} style={{ background: "#FFFFFF", borderRadius: isMobile ? 0 : 12, border: isMobile ? "none" : "1px solid #E0E0E0",
         boxShadow: isMobile ? "none" : "0 16px 48px rgba(0,0,0,.12)",
-        width: isMobile ? "100%" : 600, maxWidth: isMobile ? "100vw" : "95vw", maxHeight: isMobile ? "100vh" : "90vh", height: isMobile ? "100vh" : "auto", overflow: "auto" }} onClick={e => e.stopPropagation()}>
+        width: isMobile ? "100%" : 600, maxWidth: isMobile ? "100vw" : "95vw", maxHeight: isMobile ? "100dvh" : "90vh", height: isMobile ? "100dvh" : "auto", overflow: "auto" }} onClick={e => e.stopPropagation()}>
 
         {/* ヘッダー */}
         <div style={{ padding: "12px 20px", borderBottom: "1px solid #E0E0E0", display: "flex", justifyContent: "space-between", alignItems: "center" }}>

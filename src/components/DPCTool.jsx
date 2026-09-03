@@ -1,8 +1,9 @@
-import { useState, useMemo, useCallback, useRef } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import { pushNav } from "../navStack";
 import useModal from "../useModal";
 import { D } from "../data";
 import { F, M } from "../styles";
-import { resolveIcdInput, findClsInfo, icdNotFoundMessage, ICD_M_WILDCARD_NOTE, SUSPECT_NOTE, calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHasExact, combosContaining, surgKey, isNonSurgeryCode, NON_SURGERY_NOTE, icdWarning, COEFFICIENT_NOTE, getCondOptionsFromResults } from "../utils";
+import { INPUT_NEUTRAL_NOTE, resolveIcdInput, findClsInfo, icdNotFoundMessage, ICD_M_WILDCARD_NOTE, SUSPECT_NOTE, calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHasExact, combosContaining, surgKey, isNonSurgeryCode, NON_SURGERY_NOTE, icdWarning, COEFFICIENT_NOTE, getCondOptionsFromResults } from "../utils";
 import { addHistory, getFavorites, addFavorite, removeFavorite, addFeedback, getFeedbacks, exportFeedbacksJSON } from "../storage";
 import useIsMobile from "../useIsMobile";
 import AC from "./AC";
@@ -46,6 +47,9 @@ function SgOption({o,valueKey,active,onSelect,highlight}){
       <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",width:"100%"}}>
         <span style={{fontWeight:600,flex:1,paddingRight:8}}>{o.label}{hasMatch&&<span style={{fontSize:10,color:"#F59E0B",fontWeight:700,marginLeft:6}}>一致</span>}</span>
       </div>
+      {o.hasInput&&o.neutral&&(
+        <div style={{fontSize:11,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:4,padding:"2px 6px"}}>この手術区分では入力した処置等は分岐に影響しません</div>
+      )}
       {hasClsNames&&(
         <div style={{fontSize:11,color:"#737373",marginTop:-2}}>
           {o.clsNames.join("、")}
@@ -204,7 +208,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgCondVal,setSgCond
   const stepTitles={cond:"病態等分類・年齢等の条件を選択してください",surg:"実施した手術を選択してください",p1:"手術・処置等1を選択してください",p2:"手術・処置等2を選択してください",sd:"副傷病を選択してください",sev:"重症度を選択してください"};
 
   return(
-    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+    <div style={{flex:1,display:"flex",flexDirection:"column",overflow:isMobile?"visible":"hidden"}}>
       {/* Toolbar: history + selections */}
       <div style={{padding:"10px 20px",borderBottom:"1px solid #E0E0E0",flexShrink:0,display:"flex",gap:6,flexWrap:"wrap",alignItems:"center"}}>
         <div style={{position:"relative"}}>
@@ -229,7 +233,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgCondVal,setSgCond
         ))}
       </div>
 
-      <div style={{flex:1,overflow:"auto",padding:"20px"}}>
+      <div style={{flex:1,overflow:isMobile?"visible":"auto",padding:isMobile?"14px 12px":"20px"}}>
         {currentStep!=="done"?(
           <div style={{maxWidth:640,margin:"0 auto"}}>
             <div style={{display:"flex",alignItems:"center",gap:12,marginBottom:16}}>
@@ -465,11 +469,81 @@ export default function DPCTool(){
     const p1=corrNum(b.p1Val)-corrNum(a.p1Val);if(p1!==0)return p1;
     return(b.points[0]||0)-(a.points[0]||0);
   }),[displayedResults,sortMode,sd]);
+  // 入力した手術・処置等が分岐に影響しない候補（例: 手術ありの区分で「なし、１,２あり」に統合）は折りたたんで別掲する
+  const mainRows=useMemo(()=>sorted.filter(r=>!r.procNeutral),[sorted]);
+  const neutralRows=useMemo(()=>sorted.filter(r=>r.procNeutral),[sorted]);
+  const[showNeutral,setShowNeutral]=useState(false);
+  const showNeutralEff=showNeutral||mainRows.length===0;
+  const visibleRows=mainRows.slice(0,renderLimit);
+  // スマートフォン: 「結果」ビューはブラウザの「戻る」で検索ビューに戻れるようにする
+  useEffect(()=>{
+    if(!isMobile||mobileView!=="results")return;
+    return pushNav(()=>setMobileView("search"));
+  },[isMobile,mobileView]);
+
+  // 結果カード（通常の候補と「分岐に影響しない候補」の両方で使う）
+  const renderCard=r=>{
+                  const chk=!!cmpList.find(x=>x.code===r.code);
+                  const tot=calcTotal(r.days,r.points,sd);
+                  const tags=[];
+                  if(r.condLabel)tags.push({l:"条件",v:r.condLabel,c:"#F59E0B"});
+                  if(r.surgeryName&&r.surgeryName!=="なし")tags.push({l:"手術",v:r.surgeryName});
+                  if(r.proc1Name&&r.proc1Name!=="-"){const a=r.proc1Name!=="なし";tags.push({l:"処置1",v:r.proc1Name,c:a?"#10B981":undefined,dim:!a});}
+                  if(r.proc2Name&&r.proc2Name!=="-"){const a=r.proc2Name!=="なし";tags.push({l:"処置2",v:r.proc2Name,c:a?"#10B981":undefined,dim:!a});}
+                  if(r.subdiagName&&r.subdiagName!=="-"){const a=r.subdiagName!=="なし";const sdIcds=a?getSubdiagICDs(r.cls,r.sdVal,r.surgVal):[];const sdSummary=sdIcds.length>0?` (${sdIcds.slice(0,3).map(ic=>ic.code+(ic.isPrefix?"~":"")).join(", ")}${sdIcds.length>3?" 他":""})`:"";tags.push({l:"副傷病",v:r.subdiagName+sdSummary,c:a?"#EA580C":undefined,dim:!a});}
+                  if(r.severity)tags.push({l:"重症度",v:r.severity.label,c:"#F59E0B"});
+
+                  return(
+                    <div key={r.code} style={{background:r.isDekidaka?"#FFF7ED":"#FFFFFF",borderRadius:8,border:chk?"2px solid #F59E0B":r.isDekidaka?"2px solid #FECACA":"2px solid #E0E0E0",padding:"9px 11px",transition:"border-color .15s, box-shadow .15s"}}
+                      onMouseEnter={e=>{if(!chk)e.currentTarget.style.borderColor="#C0C0C0";e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,.04)";}}
+                      onMouseLeave={e=>{if(!chk)e.currentTarget.style.borderColor=r.isDekidaka?"#FECACA":"#E0E0E0";e.currentTarget.style.boxShadow="none";}}>
+                      <div style={{display:"flex",alignItems:"center",gap:8}}>
+                        <button onClick={e=>{e.stopPropagation();toggleFav(r);}} aria-label={favSet.has(r.code)?"お気に入りから削除":"お気に入りに追加"} style={{cursor:"pointer",flexShrink:0,background:"none",border:"none",padding:6,display:"flex",alignItems:"center",justifyContent:"center"}} title="お気に入り"><svg width="18" height="18" viewBox="0 0 24 24" fill={favSet.has(r.code)?"#F59E0B":"none"} stroke={favSet.has(r.code)?"#F59E0B":"#A3A3A3"} strokeWidth="2"><polygon points="12,2 15,9 22,9 17,14 19,21 12,17 5,21 7,14 2,9 9,9"/></svg></button>
+                        <label style={{display:"flex",alignItems:"center",justifyContent:"center",width:36,height:36,cursor:"pointer",flexShrink:0,margin:0}} title="比較に追加"><input type="checkbox" checked={chk} onChange={()=>toggleCmp(r)} aria-label={`${r.code}を比較に追加`} style={{cursor:"pointer",accentColor:"#F59E0B",width:16,height:16}} /></label>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
+                            <button onClick={()=>setDetail(r)} style={{fontFamily:M,color:r.isDekidaka?"#E11D48":"#3B82F6",fontWeight:700,fontSize:15,cursor:"pointer",textDecoration:"underline",textDecorationColor:"rgba(59,130,246,.3)",textUnderlineOffset:2,background:"none",border:"none",padding:0}}>{r.code}</button>
+                            {r.isDekidaka&&<span style={{background:"#EF4444",color:"#fff",borderRadius:4,padding:"1px 6px",fontSize:10,fontWeight:700}}>出来高</span>}
+                            <span style={{color:"#737373",fontSize:13}}>{r.clsName}</span>
+                          </div>
+                          {tags.length>0&&(
+                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
+                              {tags.map((t,j)=>(<span key={j} style={{background:"#FAFAFA",borderRadius:4,padding:"2px 7px",fontSize:12,color:t.dim?"#737373":(t.c||"#737373"),border:t.dim?"1px dashed #E0E0E0":"1px solid #F0F0F0"}}>{t.l}: <span style={{color:t.dim?"#737373":(t.c||"#404040"),fontWeight:t.c&&!t.dim?600:400}}>{t.v}</span></span>))}
+                            </div>
+                          )}
+                        </div>
+                        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
+                          {sd>0&&!r.isDekidaka&&tot&&(
+                            <div style={{textAlign:"right",marginRight:6}}>
+                              <div style={{fontSize:10,color:tot.overDays>0?"#EF4444":"#737373"}}>{tot.overDays>0?`DPC${tot.d3}日+出来高${tot.overDays}日`:`総点数（${sd}日）`}</div>
+                              <div style={{fontFamily:M,fontWeight:700,color:"#F59E0B",fontSize:16}}>{tot.total.toLocaleString()}</div>
+                              {tot.overDays>0&&<div style={{fontSize:9,color:"#C0392B"}}>※DPC包括分のみ</div>}
+                            </div>
+                          )}
+                          {r.isDekidaka?(
+                            <div style={{color:"#EF4444",fontSize:13,fontWeight:600,minWidth:isMobile?40:60,textAlign:"center"}}>出来高</div>
+                          ):(
+                            <div style={{display:"flex",gap:isMobile?2:4}}>
+                              {r.points.map((p,pi)=>(
+                                <div key={pi} style={{textAlign:"center",minWidth:isMobile?40:48,background:pi===0?"rgba(59,130,246,.06)":"transparent",borderRadius:5,padding:"3px 4px"}}>
+                                  <div style={{fontSize:isMobile?9:10,color:"#737373"}}>{["Ⅰ","Ⅱ","Ⅲ"][pi]}</div>
+                                  <div style={{fontFamily:M,fontWeight:pi===0?700:400,color:pi===0?"#3B82F6":"#737373",fontSize:pi===0?(isMobile?14:16):(isMobile?11:13)}}>{p?p.toLocaleString():"-"}</div>
+                                  <div style={{fontSize:isMobile?8:9,color:"#8B8B8B"}}>{r.points[pi]?`${r.days[pi]}日`:"-"}</div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+  };
 
   return(
-    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:"#F2F2F2",color:"#404040",fontFamily:F,overflow:"hidden"}}>
+    <div style={{height:isMobile?"auto":"100vh",minHeight:isMobile?"100dvh":undefined,display:"flex",flexDirection:"column",background:"#F2F2F2",color:"#404040",fontFamily:F,overflow:isMobile?"visible":"hidden"}}>
 
-      {/* Header */}
+      {/* Header（スマートフォンではタブと一緒に上部に固定） */}
+      <div style={isMobile?{position:"sticky",top:0,zIndex:60}:undefined}>
       <div style={{background:"#FFFFFF",borderBottom:"1px solid #E0E0E0",padding:isMobile?"6px 12px":"10px 20px",display:"flex",alignItems:"center",gap:isMobile?8:12,flexShrink:0}}>
         <div style={{width:isMobile?26:32,height:isMobile?26:32,borderRadius:isMobile?5:7,background:"#262626",display:"flex",alignItems:"center",justifyContent:"center",fontSize:isMobile?13:16,fontWeight:800,color:"#fff"}}>D</div>
         <div style={{flex:1}}>
@@ -499,12 +573,13 @@ export default function DPCTool(){
           ))}
         </div>
       )}
+      </div>
 
       {/* Main Content - 2 Column Layout (desktop) / Tab switch (mobile) */}
-      <div style={{flex:1,display:"flex",overflow:"hidden"}}>
+      <div style={{flex:isMobile?"none":1,display:"flex",overflow:isMobile?"visible":"hidden"}}>
 
         {/* Left Column: Search Zone */}
-        <aside style={{width:isMobile?"100%":320,flexShrink:0,background:"#FFFFFF",borderRight:isMobile?"none":"1px solid #E0E0E0",overflow:"auto",display:isMobile?(mobileView==="search"?"flex":"none"):"flex",flexDirection:"column"}}>
+        <aside style={{width:isMobile?"100%":320,flexShrink:0,background:"#FFFFFF",borderRight:isMobile?"none":"1px solid #E0E0E0",overflow:isMobile?"visible":"auto",display:isMobile?(mobileView==="search"?"flex":"none"):"flex",flexDirection:"column"}}>
           {/* Mode tabs */}
           <div role="tablist" style={{display:"flex",borderBottom:"1px solid #E0E0E0",flexShrink:0}}>
             {[["list","一覧検索"],["suggest","最適DPCサジェスト"]].map(([k,v])=>(
@@ -592,7 +667,7 @@ export default function DPCTool(){
         </aside>
 
         {/* Right Column: Results Zone */}
-        <main id="main-content" style={{flex:1,display:isMobile?(mobileView==="results"?"flex":"none"):"flex",flexDirection:"column",overflow:"hidden"}}>
+        <main id="main-content" style={{flex:1,minWidth:0,display:isMobile?(mobileView==="results"?"flex":"none"):"flex",flexDirection:"column",overflow:isMobile?"visible":"hidden"}}>
          {mode==="list"?(<>
           {/* DrillDown + Toolbar */}
           <div style={{padding:"12px 20px",flexShrink:0}}>
@@ -615,69 +690,25 @@ export default function DPCTool(){
           </div>
 
           {/* Results */}
-          <div style={{flex:1,overflow:"auto",padding:"0 20px 16px"}}>
+          <div style={{flex:1,overflow:isMobile?"visible":"auto",padding:isMobile?"0 12px 16px":"0 20px 16px"}}>
             {sorted.length>0?(
               <div style={{display:"flex",flexDirection:"column",gap:4}}>
-                {sorted.slice(0,renderLimit).map(r=>{
-                  const chk=!!cmpList.find(x=>x.code===r.code);
-                  const tot=calcTotal(r.days,r.points,sd);
-                  const tags=[];
-                  if(r.condLabel)tags.push({l:"条件",v:r.condLabel,c:"#F59E0B"});
-                  if(r.surgeryName&&r.surgeryName!=="なし")tags.push({l:"手術",v:r.surgeryName});
-                  if(r.proc1Name&&r.proc1Name!=="-"){const a=r.proc1Name!=="なし";tags.push({l:"処置1",v:r.proc1Name,c:a?"#10B981":undefined,dim:!a});}
-                  if(r.proc2Name&&r.proc2Name!=="-"){const a=r.proc2Name!=="なし";tags.push({l:"処置2",v:r.proc2Name,c:a?"#10B981":undefined,dim:!a});}
-                  if(r.subdiagName&&r.subdiagName!=="-"){const a=r.subdiagName!=="なし";const sdIcds=a?getSubdiagICDs(r.cls,r.sdVal,r.surgVal):[];const sdSummary=sdIcds.length>0?` (${sdIcds.slice(0,3).map(ic=>ic.code+(ic.isPrefix?"~":"")).join(", ")}${sdIcds.length>3?" 他":""})`:"";tags.push({l:"副傷病",v:r.subdiagName+sdSummary,c:a?"#EA580C":undefined,dim:!a});}
-                  if(r.severity)tags.push({l:"重症度",v:r.severity.label,c:"#F59E0B"});
-
-                  return(
-                    <div key={r.code} style={{background:r.isDekidaka?"#FFF7ED":"#FFFFFF",borderRadius:8,border:chk?"2px solid #F59E0B":r.isDekidaka?"2px solid #FECACA":"2px solid #E0E0E0",padding:"9px 11px",transition:"border-color .15s, box-shadow .15s"}}
-                      onMouseEnter={e=>{if(!chk)e.currentTarget.style.borderColor="#C0C0C0";e.currentTarget.style.boxShadow="0 2px 8px rgba(0,0,0,.04)";}}
-                      onMouseLeave={e=>{if(!chk)e.currentTarget.style.borderColor=r.isDekidaka?"#FECACA":"#E0E0E0";e.currentTarget.style.boxShadow="none";}}>
-                      <div style={{display:"flex",alignItems:"center",gap:8}}>
-                        <button onClick={e=>{e.stopPropagation();toggleFav(r);}} aria-label={favSet.has(r.code)?"お気に入りから削除":"お気に入りに追加"} style={{cursor:"pointer",flexShrink:0,background:"none",border:"none",padding:6,display:"flex",alignItems:"center",justifyContent:"center"}} title="お気に入り"><svg width="18" height="18" viewBox="0 0 24 24" fill={favSet.has(r.code)?"#F59E0B":"none"} stroke={favSet.has(r.code)?"#F59E0B":"#A3A3A3"} strokeWidth="2"><polygon points="12,2 15,9 22,9 17,14 19,21 12,17 5,21 7,14 2,9 9,9"/></svg></button>
-                        <label style={{display:"flex",alignItems:"center",justifyContent:"center",width:36,height:36,cursor:"pointer",flexShrink:0,margin:0}} title="比較に追加"><input type="checkbox" checked={chk} onChange={()=>toggleCmp(r)} aria-label={`${r.code}を比較に追加`} style={{cursor:"pointer",accentColor:"#F59E0B",width:16,height:16}} /></label>
-                        <div style={{flex:1,minWidth:0}}>
-                          <div style={{display:"flex",alignItems:"center",gap:8,flexWrap:"wrap"}}>
-                            <button onClick={()=>setDetail(r)} style={{fontFamily:M,color:r.isDekidaka?"#E11D48":"#3B82F6",fontWeight:700,fontSize:15,cursor:"pointer",textDecoration:"underline",textDecorationColor:"rgba(59,130,246,.3)",textUnderlineOffset:2,background:"none",border:"none",padding:0}}>{r.code}</button>
-                            {r.isDekidaka&&<span style={{background:"#EF4444",color:"#fff",borderRadius:4,padding:"1px 6px",fontSize:10,fontWeight:700}}>出来高</span>}
-                            <span style={{color:"#737373",fontSize:13}}>{r.clsName}</span>
-                          </div>
-                          {tags.length>0&&(
-                            <div style={{display:"flex",gap:4,flexWrap:"wrap",marginTop:4}}>
-                              {tags.map((t,j)=>(<span key={j} style={{background:"#FAFAFA",borderRadius:4,padding:"2px 7px",fontSize:12,color:t.dim?"#737373":(t.c||"#737373"),border:t.dim?"1px dashed #E0E0E0":"1px solid #F0F0F0"}}>{t.l}: <span style={{color:t.dim?"#737373":(t.c||"#404040"),fontWeight:t.c&&!t.dim?600:400}}>{t.v}</span></span>))}
-                            </div>
-                          )}
-                        </div>
-                        <div style={{display:"flex",gap:6,alignItems:"center",flexShrink:0}}>
-                          {sd>0&&!r.isDekidaka&&tot&&(
-                            <div style={{textAlign:"right",marginRight:6}}>
-                              <div style={{fontSize:10,color:tot.overDays>0?"#EF4444":"#737373"}}>{tot.overDays>0?`DPC${tot.d3}日+出来高${tot.overDays}日`:`総点数（${sd}日）`}</div>
-                              <div style={{fontFamily:M,fontWeight:700,color:"#F59E0B",fontSize:16}}>{tot.total.toLocaleString()}</div>
-                              {tot.overDays>0&&<div style={{fontSize:9,color:"#C0392B"}}>※DPC包括分のみ</div>}
-                            </div>
-                          )}
-                          {r.isDekidaka?(
-                            <div style={{color:"#EF4444",fontSize:13,fontWeight:600,minWidth:isMobile?40:60,textAlign:"center"}}>出来高</div>
-                          ):(
-                            <div style={{display:"flex",gap:isMobile?2:4}}>
-                              {r.points.map((p,pi)=>(
-                                <div key={pi} style={{textAlign:"center",minWidth:isMobile?40:48,background:pi===0?"rgba(59,130,246,.06)":"transparent",borderRadius:5,padding:"3px 4px"}}>
-                                  <div style={{fontSize:isMobile?9:10,color:"#737373"}}>{["Ⅰ","Ⅱ","Ⅲ"][pi]}</div>
-                                  <div style={{fontFamily:M,fontWeight:pi===0?700:400,color:pi===0?"#3B82F6":"#737373",fontSize:pi===0?(isMobile?14:16):(isMobile?11:13)}}>{p?p.toLocaleString():"-"}</div>
-                                  <div style={{fontSize:isMobile?8:9,color:"#8B8B8B"}}>{r.points[pi]?`${r.days[pi]}日`:"-"}</div>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-                {sorted.length>renderLimit&&(
+                {visibleRows.map(r=>renderCard(r))}
+                {mainRows.length>renderLimit&&(
                   <button onClick={()=>setRenderLimit(n=>n+300)} style={{marginTop:6,padding:"10px 0",background:"#FFFFFF",border:"1px solid #E0E0E0",borderRadius:8,color:"#3B82F6",cursor:"pointer",fontSize:13,fontWeight:600}}>
-                    さらに表示（残り{(sorted.length-renderLimit).toLocaleString()}件）
+                    さらに表示（残り{(mainRows.length-renderLimit).toLocaleString()}件）
                   </button>
+                )}
+                {neutralRows.length>0&&(
+                  <div style={{marginTop:10,border:"1px dashed #D4D4D4",borderRadius:8,padding:"10px 12px",background:"#FAFAFA"}}>
+                    <button onClick={()=>setShowNeutral(v=>!v)} aria-expanded={showNeutralEff} disabled={mainRows.length===0}
+                      style={{background:"none",border:"none",padding:0,cursor:mainRows.length===0?"default":"pointer",fontSize:13,fontWeight:700,color:"#404040",display:"flex",alignItems:"center",gap:6}}>
+                      <span style={{display:"inline-block",transform:showNeutralEff?"rotate(90deg)":"none",transition:"transform .15s"}}>▸</span>
+                      入力した手術・処置等が分岐に影響しない候補（{neutralRows.length}件）
+                    </button>
+                    <div style={{fontSize:11,color:"#737373",marginTop:4,lineHeight:1.5}}>{INPUT_NEUTRAL_NOTE}</div>
+                    {showNeutralEff&&<div style={{display:"flex",flexDirection:"column",gap:4,marginTop:8}}>{neutralRows.slice(0,renderLimit).map(r=>renderCard(r))}</div>}
+                  </div>
                 )}
               </div>
             ):!searched?(
