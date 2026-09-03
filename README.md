@@ -431,7 +431,7 @@ node scripts/generate-data.mjs --file database/新ファイル.xlsx --as-of 2026
 | `D.dk` | 74 | 出来高算定手術等コード → 名称（手術・検査） |
 | `D.dx` | - | `{dr: 薬剤名称の配列, pt: 対象患者の配列}`（出来高算定・コードなし） |
 | `D.da` | 317 | 薬剤コード → 商品名別名の配列（`database/drug-aliases.json` 由来） |
-| `D.dn` | 72 | 病名の別名・略語 → ICD-10コード配列（`database/disease-aliases.json` 由来） |
+| `D.dn` | 83 | 病名の別名・略語 → ICD-10コード配列（`database/disease-aliases.json` 由来） |
 | `D.cc` | 153 | DPCコード → CCPM支払分類コード |
 
 ---
