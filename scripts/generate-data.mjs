@@ -286,7 +286,7 @@ console.log(`  除外: 抹消 ${rowStats.deleted} 行, 失効 ${rowStats.expired
 const D = {
   meta: {}, dpc: {}, cls: {}, lb: {}, br: {}, p1: {}, p2: {}, pc: {},
   si: {}, sl: [], icd: {}, icn: {}, sd: {}, sv: {}, dk: {}, dx: { dr: [], pt: [] },
-  cn: {}, da: {}, pt: {}, cc: {}, cv: {},
+  cn: {}, da: {}, dn: {}, pt: {}, cc: {}, cv: {},
 };
 const warnings = [];
 const warn = (msg) => warnings.push(msg);
@@ -754,6 +754,25 @@ console.log("D.da 生成中...");
   const drugCodes = [...p2Codes].filter((c) => /^\d{4}$/.test(c));
   const noAlias = drugCodes.filter((c) => !D.da[c]);
   console.log(`  → D.da: ${Object.keys(D.da).length} 件（4桁ダミーコード ${drugCodes.length} 件中、別名なし ${noAlias.length} 件）`);
+}
+
+// ── 病名別名・略語 → D.dn（database/disease-aliases.json、公式Excelには含まれない運用データ） ──
+console.log("D.dn 生成中...");
+{
+  const aliasFile = join(DB_DIR, "disease-aliases.json");
+  let aliases = {};
+  if (existsSync(aliasFile)) aliases = JSON.parse(readFileSync(aliasFile, "utf-8"));
+  else console.log(`  [WARN] 病名別名ファイルがありません: ${aliasFile}`);
+  const orphans = [];
+  for (const alias of Object.keys(aliases).sort()) {
+    if (alias.startsWith("_")) continue; // _comment 等
+    const codes = [...new Set((aliases[alias] || []).map(str).filter(Boolean))];
+    const ok = codes.filter((c) => D.icn[c] !== undefined);
+    for (const c of codes) if (!D.icn[c]) orphans.push(`${alias}→${c}`);
+    if (ok.length) D.dn[str(alias).trim()] = ok;
+  }
+  if (orphans.length) console.log(`  [NOTE] ICDテーブルに存在しないコードを除外: ${orphans.join(", ")}`);
+  console.log(`  → D.dn: ${Object.keys(D.dn).length} 件`);
 }
 
 // ── メタ情報 ──

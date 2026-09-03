@@ -1,5 +1,5 @@
 import { useState, useCallback, useId } from "react";
-import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findCls, getNoResultHints, icdWarning, NON_SURGERY_NOTE } from "../utils";
+import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findClsInfo, getNoResultHints, icdWarning, NON_SURGERY_NOTE, resolveIcdInput, icdNotFoundMessage, ICD_M_WILDCARD_NOTE, SUSPECT_NOTE } from "../utils";
 import { D } from "../data";
 import { M } from "../styles";
 import AC from "./AC";
@@ -19,7 +19,17 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
   const [noResultHints, setNoResultHints] = useState(null);
 
   const doSearch = useCallback(() => {
-    const icd = selIcd || icdIn.trim();
+    let icd = selIcd; let suspected = false;
+    if (!icd && icdIn.trim()) {
+      // 候補未選択のまま検索された場合: コード形式ならそのまま、病名テキストは一意/分類名一致のときだけ採用
+      const rs = resolveIcdInput(icdIn);
+      suspected = rs.suspected;
+      if (rs.code) { icd = rs.code; if (rs.adopted) { setIcdIn(`${rs.code} ${rs.name}`); setSelIcd(rs.code); } }
+      else {
+        setErrMsg(rs.reason === "ambiguous" ? `「${icdIn.trim()}」に一致する病名候補が複数あります。候補一覧から選択してください。` : `「${icdIn.trim()}」に一致する病名・ICD-10がありません。分類名（例: 肺炎等）やICD-10コードで検索してください。`);
+        setNoResultHints(null); setInfoMsg(""); return;
+      }
+    } else if (selIcd) { suspected = /(疑い|疑)$/.test(icdIn.trim()); }
     const p = {};
     if (icd) p.icdCode = icd;
     if (selSurg) p.surgeryCode = selSurg;
@@ -28,14 +38,13 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
     if (!p.icdCode && !p.surgeryCode && !p.procAnyCode && !p.drugCode) {
       setErrMsg("少なくとも1つの条件を入力してください"); setNoResultHints(null); setInfoMsg(""); return;
     }
-    const sd = parseInt(stayDays);
-    if (!sd || sd <= 0) {
-      setErrMsg("入院日数を入力してください"); setNoResultHints(null); setInfoMsg(""); return;
-    }
+    const sd = Math.max(0, parseInt(stayDays) || 0); // 入院日数は任意（未入力なら期間Ⅰ点数順で候補を表示）
+    let mWildcard = false;
     if (p.icdCode) {
-      const cls = findCls(p.icdCode);
-      if (cls.length === 0 && p.icdCode.match(/^[A-Z]/i)) {
-        setErrMsg("このICD-10はDPC対象外です"); setNoResultHints(null); setInfoMsg(""); return;
+      const info = findClsInfo(p.icdCode);
+      mWildcard = info.mWildcard;
+      if (info.cls.length === 0) {
+        setErrMsg(icdNotFoundMessage(p.icdCode)); setNoResultHints(null); setInfoMsg(""); return;
       }
     }
     setErrMsg("");
@@ -53,6 +62,8 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
     setNoResultHints(null);
     const combos = [...new Set(r.flatMap(x => x.comboHint || []))];
     const notes = [];
+    if (mWildcard) notes.push(ICD_M_WILDCARD_NOTE);
+    if (suspected) notes.push(SUSPECT_NOTE);
     if (r.some(x => x.surgFallback)) notes.push(`${selSurg} はこの分類の定義テーブルにない手術のため、「その他の手術あり（97）」として候補を絞り込みます。準用手術は準用元のKコードで判断します（通知 第2の1(6)）。`);
     if (r.some(x => x.surgExcluded)) notes.push(NON_SURGERY_NOTE);
     if (combos.length) notes.push(`組み合わせ手術（${combos.join("、")}）は並列された全ての手術を実施した場合のみ該当します（通知 第2の3(4)）。該当する場合は手術欄で組み合わせを選択してください。`);
@@ -76,13 +87,12 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
       <AC label="手術・処置等" value={procIn} onChange={v => { setProcIn(v); setSelProc(""); }} onSelect={r => { setProcIn(`${r.code} ${r.name}`); setSelProc(r.code); }} searchFn={searchProc} placeholder="例: SPECT, E101..." showTag />
       <AC label="薬剤" value={drugIn} onChange={v => { setDrugIn(v); setSelDrug(""); }} onSelect={r => { setDrugIn(`${r.code} ${r.name}`); setSelDrug(r.code); }} searchFn={searchDrug} placeholder="例: リコモジュリン..." />
       <div>
-        <label htmlFor={stayId} style={{ display: "block", fontSize: 11, color: "#737373", marginBottom: 3, fontWeight: 600 }}>入院日数 <span style={{ color: "#EF4444" }}>*</span></label>
-        <input id={stayId} className="sg-stay-days" type="number" min="1" max="365" value={stayDays} onChange={e => setStayDays(e.target.value)} placeholder="14"
-          aria-invalid={errMsg && errMsg.includes("入院日数") ? "true" : undefined}
+        <label htmlFor={stayId} style={{ display: "block", fontSize: 11, color: "#737373", marginBottom: 3, fontWeight: 600 }}>入院日数（任意）</label>
+        <input id={stayId} className="sg-stay-days" type="number" min="1" max="365" value={stayDays} onChange={e => setStayDays(e.target.value)} placeholder="例: 14（未入力なら期間Ⅰ点数順）"
           aria-describedby={errMsg ? errId : undefined}
-          style={{ width: "100%", padding: "8px 10px", border: `1.5px solid ${!stayDays ? "#FCA5A5" : "#E0E0E0"}`, borderRadius: 6, background: "#FFFFFF", color: "#404040", fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color .15s, box-shadow .15s" }}
+          style={{ width: "100%", padding: "8px 10px", border: "1.5px solid #E0E0E0", borderRadius: 6, background: "#FFFFFF", color: "#404040", fontSize: 14, outline: "none", boxSizing: "border-box", transition: "border-color .15s, box-shadow .15s" }}
           onFocus={e => { e.target.style.borderColor = "#404040"; e.target.style.boxShadow = "0 0 0 3px rgba(64,64,64,.1)"; }}
-          onBlur={e => { e.target.style.borderColor = !stayDays ? "#FCA5A5" : "#E0E0E0"; e.target.style.boxShadow = "none"; }} />
+          onBlur={e => { e.target.style.borderColor = "#E0E0E0"; e.target.style.boxShadow = "none"; }} />
       </div>
       {dekidakaWarn && <div role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{dekidakaWarn}</div>}
       {(() => { const w = icdWarning(selIcd || icdIn.trim()); return w ? <div role="alert" style={{ background: w.level === "forbid" ? "rgba(239,68,68,.08)" : "#FFFBEB", border: w.level === "forbid" ? "1px solid rgba(239,68,68,.25)" : "1px solid #FDE68A", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: w.level === "forbid" ? "#B91C1C" : "#92400E" }}>{w.text}</div> : null; })()}

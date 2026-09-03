@@ -8,8 +8,7 @@ import {
   searchDPC, getExpandedResults, expandForSuggest, filterDrillDown, getBranchOptions,
   getSubdiagICDs, getSurgeryOptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults,
   buildResultFromCode, resultsOfClass, dpcCodesOf, isDekidakaOp, getSimilarClassifications, searchDrug, searchDisease, searchSurg,
-  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning,
-} from "../src/utils.js";
+  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage } from "../src/utils.js";
 
 const X = "x";
 const first = (arr, pred) => arr.find(pred);
@@ -354,5 +353,56 @@ describe("出来高・薬剤検索", () => {
     const hits = searchDrug(aliases[0]);
     assert.ok(hits.some((h) => h.code === code));
     assert.ok(hits.every((h) => /^\d{4}$/.test(h.code)));
+  });
+});
+
+describe("病名・ICD入力の正規化と検索候補", () => {
+  test("ドット付きICD表記（N39.0 / M48.06）はドット無しと同じ分類に解決し、M!!!! 誤適用を起こさない", () => {
+    assert.equal(normalizeIcd("n39.0"), "N390");
+    assert.deepEqual(findCls("N39.0"), findCls("N390"));
+    assert.deepEqual(findClsInfo("M48.06"), findClsInfo("M4806"));
+    assert.equal(findClsInfo("M48.06").mWildcard, false);
+    assert.equal(findClsInfo("M0030").mWildcard, true);
+    assert.deepEqual(findClsInfo("M0030").cls, ["071030"]);
+    assert.deepEqual(findCls(ICD_M_WILDCARD), ["071030"]);
+  });
+  test("「○○疑い」「○○の疑い」は疑いを外して検索し、suspected を返す", () => {
+    assert.deepEqual(stripSuspect("胃癌の疑い"), { q: "胃癌", suspected: true });
+    assert.deepEqual(stripSuspect("胃癌疑"), { q: "胃癌", suspected: true });
+    assert.deepEqual(stripSuspect("胃癌"), { q: "胃癌", suspected: false });
+    assert.ok(searchDisease("胃癌疑い").some((r) => r.code === "C16$"));
+  });
+  test("別名・略語辞書（D.dn）と表記ゆれ（癌→悪性新生物、頸→頚）で候補が出る", () => {
+    const ami = searchDisease("AMI");
+    assert.ok(ami.length > 0 && ami[0].code === "I21$" && String(ami[0].tag).startsWith("別名"));
+    assert.ok(searchDisease("胃癌").some((r) => r.code === "C16$"));
+    assert.ok(searchDisease("肺がん").some((r) => r.code === "C34$"));
+    assert.ok(searchDisease("大腿骨頸部骨折").some((r) => r.code === "S7200"));
+    assert.deepEqual(searchDisease("RA"), [], "辞書にない英字1〜3文字は無関係な部分一致を返さない");
+  });
+  test("コード形式の入力はコード前方一致のみ、一般語は S コード等の主要候補が30件に入る", () => {
+    const i6 = searchDisease("I6");
+    assert.ok(i6.length > 0 && i6.every((r) => r.code.startsWith("I6")));
+    const kossetsu = searchDisease("骨折");
+    assert.ok(kossetsu.length <= 30);
+    assert.ok(kossetsu.some((r) => /^S/.test(r.code)), "骨折で S コードが候補に含まれる");
+    const tou = searchDisease("糖尿病");
+    assert.ok(tou.some((r) => r.code === "E119"), "糖尿病で E119 が候補に含まれる");
+  });
+  test("候補未選択の生テキストは一意・分類名完全一致のときだけ採用し、それ以外は理由を返す", () => {
+    assert.deepEqual(resolveIcdInput("N39.0"), { code: "N390", suspected: false });
+    const nou = resolveIcdInput("脳梗塞");
+    assert.equal(nou.code, "010060"); assert.equal(nou.adopted, true);
+    const ami = resolveIcdInput("AMI疑い");
+    assert.equal(ami.code, "I21$"); assert.equal(ami.suspected, true);
+    assert.equal(resolveIcdInput("肺炎").reason, "ambiguous");
+    assert.equal(resolveIcdInput("骨折").reason, "ambiguous");
+    assert.equal(resolveIcdInput("存在しない病名XYZ").reason, "nomatch");
+  });
+  test("分類に解決できないICDの説明文は選択不可コードと未収載を区別する", () => {
+    assert.match(icdNotFoundMessage("R509"), /Rコード/);
+    assert.match(icdNotFoundMessage("Z000"), /Zコード/);
+    assert.match(icdNotFoundMessage("B95"), /選択できません/);
+    assert.match(icdNotFoundMessage("A999"), /収載されていません/);
   });
 });

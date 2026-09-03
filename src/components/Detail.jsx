@@ -130,7 +130,10 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
           {r.condLabel && conditionNote(cls) && <div style={{ fontSize: 10, color: "#8B8B8B", padding: "2px 0 4px" }}>{conditionNote(cls)}</div>}
           {r.ccpm && <Row l="CCPM対応（支払分類）" v={r.ccpm} />}
         </div>
-        {svEntries.length > 1 && (
+        {svEntries.length > 1 && !r.severity && (
+          <div style={{ padding: "0 20px 12px", fontSize: 12, color: "#737373" }}>重症度分岐（{svDef.name}）─ この条件（手術・処置等の組み合わせ）では重症度による分岐はありません。</div>
+        )}
+        {svEntries.length > 1 && r.severity && (
           <div style={{ padding: "0 20px 12px" }}>
             <div style={{ color: "#737373", fontSize: 12, fontWeight: 600, marginBottom: 6 }}>重症度分岐 ─ {svDef.name}</div>
             <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>

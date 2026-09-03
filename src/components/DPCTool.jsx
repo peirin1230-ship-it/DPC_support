@@ -1,8 +1,8 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef } from "react";
 import useModal from "../useModal";
 import { D } from "../data";
 import { F, M } from "../styles";
-import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHasExact, combosContaining, surgKey, isNonSurgeryCode, NON_SURGERY_NOTE, icdWarning, COEFFICIENT_NOTE, getCondOptionsFromResults } from "../utils";
+import { resolveIcdInput, findClsInfo, icdNotFoundMessage, ICD_M_WILDCARD_NOTE, SUSPECT_NOTE, calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHasExact, combosContaining, surgKey, isNonSurgeryCode, NON_SURGERY_NOTE, icdWarning, COEFFICIENT_NOTE, getCondOptionsFromResults } from "../utils";
 import { addHistory, getFavorites, addFavorite, removeFavorite, addFeedback, getFeedbacks, exportFeedbacksJSON } from "../storage";
 import useIsMobile from "../useIsMobile";
 import AC from "./AC";
@@ -355,7 +355,8 @@ export default function DPCTool(){
   const[sgTabs,setSgTabs]=useState([mkSgTab(),mkSgTab()]);
   const sg=sgTabs[sgTabIdx];
   const setSg=fn=>setSgTabs(prev=>{const next=[...prev];next[sgTabIdx]=typeof fn==="function"?fn(next[sgTabIdx]):{...next[sgTabIdx],...fn};return next;});
-  const mkSgSearchCb=i=>(exp,sd,inputSurg)=>{setSgTabs(prev=>{const next=[...prev];next[i]={expanded:exp,stayDays:sd,searched:true,condVal:null,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:inputSurg||""};return next;});};
+  const isMobileRef=useRef(isMobile);isMobileRef.current=isMobile;
+  const mkSgSearchCb=i=>(exp,sd,inputSurg)=>{setSgTabs(prev=>{const next=[...prev];next[i]={expanded:exp,stayDays:sd,searched:true,condVal:null,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:inputSurg||""};return next;});if(isMobileRef.current)setMobileView("results");};
   const mkSgResetCb=i=>()=>{setSgTabs(prev=>{const next=[...prev];next[i]=mkSgTab();return next;});};
   const sgSearchCb0=useCallback(mkSgSearchCb(0),[]);const sgSearchCb1=useCallback(mkSgSearchCb(1),[]);
   const sgResetCb0=useCallback(mkSgResetCb(0),[]);const sgResetCb1=useCallback(mkSgResetCb(1),[]);
@@ -378,12 +379,18 @@ export default function DPCTool(){
   const[favSet,setFavSet]=useState(()=>new Set(getFavorites().map(f=>f.code)));
   const[showFb,setShowFb]=useState(false);const[fbText,setFbText]=useState("");const[fbSent,setFbSent]=useState(false);
   const[showDk,setShowDk]=useState(false);const[renderLimit,setRenderLimit]=useState(300);
+  const[icdErr,setIcdErr]=useState("");const[searchNotes,setSearchNotes]=useState([]);
 
   // 一覧検索の実行を1箇所に集約する（検索フォーム・履歴の復元・類似分類へのジャンプで共通）
   // 結果に紐づく状態（警告・前回条件・ドリルダウン・表示件数・MDC絞込）は必ず同時に初期化する
-  const runSearch=(p,{resetMdc=false}={})=>{
+  const runSearch=(p,{resetMdc=false,suspected=false}={})=>{
     if(p.surgeryCode&&isDekidakaOp(p.surgeryCode)){setDekidakaWarn(`${p.surgeryCode}（${D.cn[p.surgeryCode]||""}）は包括評価対象外の手術です。出来高で算定されます。`);}
     else{setDekidakaWarn("");}
+    setIcdErr("");
+    const notes=[];
+    if(p.icdCode){const info=findClsInfo(p.icdCode);if(!info.cls.length)setIcdErr(icdNotFoundMessage(p.icdCode));if(info.mWildcard)notes.push(ICD_M_WILDCARD_NOTE);}
+    if(suspected)notes.push(SUSPECT_NOTE);
+    setSearchNotes(notes);
     const r=searchDPC(p);
     setResults(r);setSearched(true);setLastParams(p);
     setExpandedDPCs(getExpandedResults(r,p));
@@ -393,13 +400,19 @@ export default function DPCTool(){
     return r;
   };
   const doSearch=()=>{
-    const icd=selIcd||icdIn.trim();const p={};
+    let icd=selIcd;let suspected=false;const p={};
+    if(!icd&&icdIn.trim()){
+      // 候補未選択のまま検索された場合: コード形式ならそのまま、病名テキストは一意/分類名一致のときだけ採用
+      const rs=resolveIcdInput(icdIn);suspected=rs.suspected;
+      if(rs.code){icd=rs.code;if(rs.adopted){setIcdIn(`${rs.code} ${rs.name}`);setSelIcd(rs.code);}}
+      else{setIcdErr(rs.reason==="ambiguous"?`「${icdIn.trim()}」に一致する病名候補が複数あります。候補一覧から選択してください。`:`「${icdIn.trim()}」に一致する病名・ICD-10がありません。分類名（例: 肺炎等）やICD-10コードで検索してください。`);return;}
+    }else if(selIcd){suspected=/(疑い|疑)$/.test(icdIn.trim());}
     if(icd)p.icdCode=icd;
     if(selSurg)p.surgeryCode=selSurg;
     if(selProc)p.procAnyCode=selProc;
     if(selDrug)p.drugCode=selDrug;
     if(!p.icdCode&&!p.surgeryCode&&!p.procAnyCode&&!p.drugCode)return;
-    const r=runSearch(p);
+    const r=runSearch(p,{suspected});
     const parts=[];
     if(icd)parts.push(icd);if(selSurg)parts.push(selSurg);if(selProc)parts.push(selProc);if(selDrug)parts.push(selDrug);
     addHistory({key:parts.join("|"),icd:icdIn.trim()||"",surg:surgIn.trim()||"",proc:procIn.trim()||"",drug:drugIn.trim()||"",
@@ -409,7 +422,7 @@ export default function DPCTool(){
   const doReset=()=>{
     setIcdIn("");setSelIcd("");setSurgIn("");setSelSurg("");
     setProcIn("");setSelProc("");setDrugIn("");setSelDrug("");
-    setStayDays("");setResults([]);setSearched(false);setCmpList([]);setDekidakaWarn("");
+    setStayDays("");setResults([]);setSearched(false);setCmpList([]);setDekidakaWarn("");setIcdErr("");setSearchNotes([]);
     setExpandedDPCs([]);setLastParams(null);setDrillP1(null);setDrillP2(null);setMdcFilter("");setRenderLimit(300);
   };
   const[cmpErr,setCmpErr]=useState("");
@@ -482,7 +495,7 @@ export default function DPCTool(){
               style={{flex:1,padding:"8px 0",border:"none",borderBottom:mobileView===k?"2px solid #262626":"2px solid transparent",
                 background:mobileView===k?"#FFFFFF":"#F5F5F5",color:mobileView===k?"#262626":"#737373",
                 fontWeight:mobileView===k?700:500,fontSize:13,cursor:"pointer",transition:"all .15s"}}>
-              {v}{k==="results"&&searched?` (${displayedResults.length})`:""}</button>
+              {v}{k==="results"&&(mode==="suggest"?(sg.searched?` (${sg.expanded.length})`:""):(searched?` (${displayedResults.length})`:""))}</button>
           ))}
         </div>
       )}
@@ -542,6 +555,8 @@ export default function DPCTool(){
               </div>
 
               {dekidakaWarn&&<div role="alert" style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",borderRadius:6,padding:"8px 12px",fontSize:13,color:"#EF4444"}}>{dekidakaWarn}</div>}
+              {icdErr&&<div role="alert" style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#B91C1C"}}>{icdErr}</div>}
+              {searchNotes.map((n,i)=><div key={i} role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>{n}</div>)}
 
               {icdWarn&&<div role="alert" style={{background:icdWarn.level==="forbid"?"rgba(239,68,68,.08)":"#FFFBEB",border:icdWarn.level==="forbid"?"1px solid rgba(239,68,68,.25)":"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:icdWarn.level==="forbid"?"#B91C1C":"#92400E"}}>{icdWarn.text}</div>}
               {searched&&results.some(r=>r.surgExcluded)&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>{NON_SURGERY_NOTE}</div>}

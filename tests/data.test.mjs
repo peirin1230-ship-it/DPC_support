@@ -186,7 +186,7 @@ describe("D.cv（変換テーブルの対応コード→桁の縮約）", () => 
   });
 });
 
-describe("D.dk / D.dx / D.da / D.cc", () => {
+describe("D.dk / D.dx / D.da / D.dn / D.cc", () => {
   test("出来高算定コードは K/D コード形式", () => {
     assert.ok(Object.keys(D.dk).length > 0);
     for (const [c, n] of Object.entries(D.dk)) { assert.match(c, /^[A-Z]\d/, c); assert.ok(n); }
@@ -197,6 +197,14 @@ describe("D.dk / D.dx / D.da / D.cc", () => {
     for (const [c, al] of Object.entries(D.da)) {
       assert.ok(p2codes.has(c), `${c}: 処置等2に存在しない`);
       assert.ok(Array.isArray(al) && al.length > 0 && al.every((a) => typeof a === "string" && a));
+    }
+  });
+  test("病名別名（D.dn）は現行ICDテーブルのキーのみを指す", () => {
+    assert.ok(Object.keys(D.dn).length > 0);
+    for (const [alias, codes] of Object.entries(D.dn)) {
+      assert.ok(alias && !alias.startsWith("_"), alias);
+      assert.ok(Array.isArray(codes) && codes.length > 0, alias);
+      for (const c of codes) assert.ok(D.icn[c] !== undefined, `${alias}: ${c} がICDテーブルにない`);
     }
   });
   test("CCPM対応は既存DPCコードを指す", () => {

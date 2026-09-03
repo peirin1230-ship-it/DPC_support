@@ -72,7 +72,7 @@ export const NON_SURGERY_NOTE = "手術等管理料・輸血管理料は診断�
 // 通知 第2の1(2): C97・T14.0〜T14.9 は選択せず主たる部位のICD-10を選択する。
 // コーディングテキスト p.22: T08・T10・T12（部位不明の損傷）は留意して使用する。
 export function icdWarning(code) {
-  const q = normalize(code || "").replace(/\$$/, "");
+  const q = normalizeIcd(code || "").replace(/\$/, "");
   if (!q) return null;
   if (q === "C97" || /^T14\d?$/.test(q)) {
     return { level: "forbid", tag: "選択不可", text: `${q} は診断群分類区分の決定に用いないICD-10です。主たる部位のICD-10を選択してください（保医発0321第6号 第2の1(2)）。` };
@@ -139,11 +139,25 @@ export function getLabel(c, t, v, sv) {
 export function hasBranch(c, s, t) { return !!D.br[c]?.[s]?.[t]; }
 
 /* ── ICD → 分類 ── */
-export function findCls(icd) {
-  if (!icd) return [];
-  const q = normalize(icd);
+/** ICD-10 コード表記の正規化: 全角→半角・大文字化に加え、"N39.0" のようなドット付き表記を "N390" にする */
+export function normalizeIcd(s) {
+  const q = normalize(s);
+  return /^[A-Z]\d{2}\./.test(q) ? q.replace(/^([A-Z]\d{2})\./, "$1") : q;
+}
+export const ICD_M_WILDCARD_NOTE = "入力したMコードはICDテーブルに個別の記載がないため、「M!!!!（ICDテーブルにないMコード）」として 071030 その他の筋骨格系疾患 に該当します。部位付きの細分類コードが個別に定義されていないか確認してください。";
+export const SUSPECT_NOTE = "疑い病名でも ICD-10・DPC は確定病名と同一です（退院時に確定していれば確定病名を選択）。ただし定義副傷病には疑い病名を含めません（保医発0321第6号 第2の2(2)）。";
+/** 「○○疑い」「○○の疑い」の接尾語を外す。{ q, suspected } */
+export function stripSuspect(text) {
+  const raw = String(text ?? "").trim();
+  const m = raw.match(/^(.+?)(?:の)?(?:疑い|疑)$/);
+  return m ? { q: m[1].trim(), suspected: true } : { q: raw, suspected: false };
+}
+/** ICD→分類の解決結果。mWildcard は「M!!!!」ルール（ICDテーブルにないMコード→071030）で解決した場合 */
+export function findClsInfo(icd) {
+  if (!icd) return { cls: [], mWildcard: false };
+  const q = normalizeIcd(icd);
   // 分類コード6桁（例: 010010, 01021x）が直接指定された場合
-  if (q.length === 6 && /^\d{2}[0-9X]{4}$/.test(q) && D.cls[q.toLowerCase()]) return [q.toLowerCase()];
+  if (q.length === 6 && /^\d{2}[0-9X]{4}$/.test(q) && D.cls[q.toLowerCase()]) return { cls: [q.toLowerCase()], mWildcard: false };
   const r = [];
   for (const [c, codes] of Object.entries(D.icd)) {
     for (const code of codes) {
@@ -154,10 +168,21 @@ export function findCls(icd) {
     }
   }
   // ＩＣＤテーブルにないＭコードは「M!!!!」を持つ分類（071030）に該当する
-  if (!r.length && q.startsWith("M")) {
+  if (!r.length && (/^M\d/.test(q) || q === ICD_M_WILDCARD)) {
     for (const [c, codes] of Object.entries(D.icd)) if (codes.includes(ICD_M_WILDCARD)) r.push(c);
+    return { cls: r, mWildcard: r.length > 0 };
   }
-  return r;
+  return { cls: r, mWildcard: false };
+}
+export function findCls(icd) { return findClsInfo(icd).cls; }
+/** ICD が分類に解決できないときの説明文（選択不可コードと未収載コードを区別する） */
+export function icdNotFoundMessage(code) {
+  const q = normalizeIcd(code);
+  if (/^R\d/.test(q)) return `${q}（症状・徴候のRコード）は原則として医療資源病名に選択できません（保医発0321第6号 第2の1(2)）。疑われる疾患または確定病名を選択してください。`;
+  if (/^Z\d/.test(q)) return `${q}（Zコード）は医療資源病名に選択できません（保医発0321第6号 第2の1(2)）。`;
+  if (/^U\d/.test(q)) return `${q}（Uコード）は原則として医療資源病名に選択できません。`;
+  if (/^B(89|9[5-9])/.test(q)) return `${q} は医療資源病名に選択できません（保医発0321第6号 第2の1(2)）。原因菌ではなく感染症の病名を選択してください。`;
+  return `${q} は電子点数表のICDテーブルに収載されていません（DPC対象外、または細分類コードの確認が必要です）。`;
 }
 
 /* ── 副傷病 ── */
@@ -401,27 +426,112 @@ function surgPriority(sv) {
   return Number.isNaN(n) ? -3 : 100 - n;
 }
 
+/* ── 病名検索 ── */
+const VAGUE_NAME_RE = /その他|詳細不明|部位不明|他に分類されない/;
+/** 表記ゆれの吸収: 癌・がん・悪性腫瘍 → 悪性新生物（トークン分割）、頸→頚、嚢→のう */
+function diseaseTokens(qn) {
+  const s = qn.replace(/頸/g, "頚").replace(/嚢/g, "のう").replace(/悪性腫瘍|癌|がん|ガン/g, "\u0000悪性新生物\u0000");
+  return s.split("\u0000").filter(Boolean);
+}
+let _aliasIndex = null;
+function aliasIndex() {
+  if (!_aliasIndex) {
+    _aliasIndex = [];
+    for (const [alias, codes] of Object.entries(D.dn || {})) _aliasIndex.push({ alias, an: normalize(alias), codes });
+  }
+  return _aliasIndex;
+}
+/** 名称の一致度（小さいほど良い）。-1 は不一致 */
+function nameScore(nn, qn, tokens) {
+  if (nn === qn) return 0;
+  if (nn.startsWith(qn)) return 1;
+  if (nn.includes(qn)) return 2;
+  if (tokens.length > 1 && tokens.every((t) => nn.includes(t))) return 3;
+  if (tokens.length === 1 && tokens[0] !== qn && nn.includes(tokens[0])) return 3;
+  return -1;
+}
+/**
+ * 病名・ICD-10・分類コードのオートコンプリート候補。
+ * 一致度（完全一致 > 前方一致 > 部分一致 > 表記ゆれ一致）、曖昧な名称（その他・詳細不明）の後回し、名称の短さの順に並べる。
+ * 「○○疑い」は疑いを外して検索し、別名・略語（database/disease-aliases.json）は「別名」タグで返す。
+ * コード形式の入力（I63, N39.0 等）はコードの前方一致のみ、英字1〜3文字は別名辞書のみを見る。
+ */
 export function searchDisease(q) {
-  if (!q || q.length < 1) return [];
-  const qn = normalize(q);
-  const r = [];
-  for (const [c, n] of Object.entries(D.cls)) {
-    if (normalize(n).includes(qn) || normalize(c).includes(qn)) {
-      r.push({ code: c, name: n, tag: "分類" });
-      if (r.length >= 5) break;
+  if (!q || String(q).trim().length < 1) return [];
+  const { q: q0 } = stripSuspect(q);
+  const qn = normalizeIcd(q0);
+  if (!qn) return [];
+  const codeLike = /^[A-Z]\d/.test(qn);
+  const clsLike = /^\d{2,6}$/.test(qn);
+  const shortAlpha = /^[A-Z]{1,3}$/.test(qn);
+  const tokens = diseaseTokens(qn);
+  const out = [];
+  // 分類（6桁コード・分類名）
+  if (!codeLike && !shortAlpha) {
+    const cls = [];
+    for (const [c, n] of Object.entries(D.cls)) {
+      const nn = normalize(n);
+      let sc = clsLike ? (c.startsWith(qn.toLowerCase()) ? 1 : -1) : nameScore(nn, qn, tokens);
+      if (sc < 0) continue;
+      cls.push({ code: c, name: n, tag: "分類", _s: sc * 1000 + nn.length });
     }
+    cls.sort((a, b) => a._s - b._s || a.code.localeCompare(b.code));
+    out.push(...cls.slice(0, 5));
   }
-  for (const [c, n] of Object.entries(D.icn)) {
-    const cn = normalize(c);
-    const isP = c.endsWith("$");
-    const base = isP ? cn.slice(0, -1) : cn;
-    if (n.includes(q) || normalize(n).includes(qn) || cn.includes(qn) || (isP && qn.startsWith(base))) {
+  // 別名・略語
+  const seen = new Set();
+  if (!clsLike) {
+    const hits = [];
+    for (const { alias, an, codes } of aliasIndex()) {
+      const sc = an === qn ? 0 : (!shortAlpha && qn.length >= 2 && an.startsWith(qn)) ? 1 : -1;
+      if (sc < 0) continue;
+      for (const c of codes) if (!seen.has(c) && D.icn[c]) { seen.add(c); hits.push({ code: c, name: cleanName(D.icn[c]), tag: `別名: ${alias}`, _s: sc * 1000 }); }
+    }
+    hits.sort((a, b) => a._s - b._s || a.code.localeCompare(b.code));
+    out.push(...hits);
+  }
+  // ICD-10 名称・コード
+  if (!shortAlpha && !clsLike) {
+    const icds = [];
+    for (const [c, n] of Object.entries(D.icn)) {
+      if (seen.has(c)) continue;
+      const cn = normalize(c);
+      const isP = c.endsWith("$");
+      const base = isP ? cn.slice(0, -1) : cn;
+      let sc = -1;
+      if (codeLike) {
+        if (cn.startsWith(qn) || base.startsWith(qn) || (isP && qn.startsWith(base))) sc = qn.length >= base.length ? 0 : 1;
+      } else {
+        sc = nameScore(normalize(n), qn, tokens);
+      }
+      if (sc < 0) continue;
       const w = icdWarning(c);
-      r.push({ code: c, name: cleanName(n), ...(w ? { tag: w.tag, warn: w.level } : {}) });
-      if (r.length >= 30) break;
+      icds.push({ code: c, name: cleanName(n), ...(w ? { tag: w.tag, warn: w.level } : {}), _s: sc * 1000 + (VAGUE_NAME_RE.test(n) ? 300 : 0) + Math.min(normalize(n).length, 200) });
     }
+    icds.sort((a, b) => a._s - b._s || a.code.localeCompare(b.code));
+    out.push(...icds.slice(0, Math.max(0, 30 - Math.min(out.length, 10))));
   }
-  return r;
+  return out.map(({ _s, ...rest }) => rest);
+}
+/**
+ * 入力欄の生テキスト（候補未選択）から ICD/分類コードを解決する。
+ * コード形式ならそのまま、病名テキストなら候補が一意または分類名の前方一致のときだけ採用する。
+ * 戻り値: { code, name?, adopted?, suspected, reason?: "nomatch"|"ambiguous", candidates? }
+ */
+export function resolveIcdInput(text) {
+  const raw = String(text ?? "").trim();
+  if (!raw) return { code: "", suspected: false };
+  const { q, suspected } = stripSuspect(raw);
+  const qn = normalizeIcd(q);
+  if (/^[A-Z]\d{2}/.test(qn) || /^\d{2}[0-9X]{4}$/.test(qn)) return { code: qn, suspected };
+  const cands = searchDisease(q);
+  if (!cands.length) return { code: "", suspected, reason: "nomatch" };
+  const top = cands[0], tn = normalize(top.name), qq = normalize(q);
+  const unique = cands.length === 1;
+  const clsHit = top.tag === "分類" && tn === qq; // 分類名と完全一致するときだけ採用（「骨折」→「骨折変形癒合…」のような前方一致は採用しない）
+  const aliasHit = String(top.tag || "").startsWith("別名") && cands.filter((c) => String(c.tag || "").startsWith("別名")).length === 1;
+  if (unique || clsHit || aliasHit) return { code: top.code, name: top.name, adopted: true, suspected };
+  return { code: "", suspected, reason: "ambiguous", candidates: cands.length };
 }
 
 /**
