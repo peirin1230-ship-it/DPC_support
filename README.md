@@ -373,7 +373,7 @@ node scripts/generate-data.mjs --dry-run  # 件数・整合性チェックのみ
 node scripts/generate-data.mjs --file database/新ファイル.xlsx --as-of 20260901
 ```
 
-- 「変更区分」抹消（1）の行と、基準日（既定はExcel内の最新更新日）時点で失効した行は除外されます
+- 「変更区分」抹消（1）の行、基準日（既定はExcel内の最新更新日）時点で失効した行、基準日より後に開始する行は除外されます
 - 薬剤の商品名別名は `database/drug-aliases.json` で管理します（公式Excelに含まれない運用データ）
 - 生成後は `npm run validate:data` と `npm test` が CI（`.github/workflows/validate-dpc.yml`）でも実行されます
 

@@ -148,7 +148,7 @@ function effectiveRows(rows, asOf, stats) {
     const end = str(r[meta.end]);
     if (isDate8(end) && end < asOf) { stats.expired++; continue; }
     const start = str(r[meta.start]);
-    if (isDate8(start) && start > asOf) stats.future++;
+    if (isDate8(start) && start > asOf) { stats.future++; continue; } // 基準日より後に開始する行（--as-of で過去時点を再現する場合）も除外
     out.push(r);
   }
   return out;
@@ -281,7 +281,7 @@ console.log(`有効期間の基準日（as-of）: ${asOf}${argAsOf ? "（指定�
 const rowStats = { deleted: 0, expired: 0, future: 0 };
 const S = {};
 for (const [k, rows] of Object.entries(raw)) S[k] = k === "dummy" ? rows : effectiveRows(rows, asOf, rowStats);
-console.log(`  除外: 抹消 ${rowStats.deleted} 行, 失効 ${rowStats.expired} 行 / 基準日より後に開始する行: ${rowStats.future} 行\n`);
+console.log(`  除外: 抹消 ${rowStats.deleted} 行, 失効 ${rowStats.expired} 行, 基準日より後に開始 ${rowStats.future} 行\n`);
 
 const D = {
   meta: {}, dpc: {}, cls: {}, lb: {}, br: {}, p1: {}, p2: {}, pc: {},

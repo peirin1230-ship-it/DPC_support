@@ -538,7 +538,7 @@ export default function DPCTool(){
               {icdWarn&&<div role="alert" style={{background:icdWarn.level==="forbid"?"rgba(239,68,68,.08)":"#FFFBEB",border:icdWarn.level==="forbid"?"1px solid rgba(239,68,68,.25)":"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:icdWarn.level==="forbid"?"#B91C1C":"#92400E"}}>{icdWarn.text}</div>}
               {searched&&results.some(r=>r.surgExcluded)&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>{NON_SURGERY_NOTE}</div>}
               {searched&&lastParams?.surgeryCode&&comboHints.length>0&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>入力した手術 <span style={{fontFamily:M}}>{lastParams.surgeryCode}</span> を含む組み合わせ手術（<span style={{fontFamily:M}}>{comboHints.join("、")}</span>）は、並列された全ての手術を実施した場合のみ該当します（保医発0321第6号 第2の3(4)）。該当する場合は手術欄で組み合わせを選択してください。</div>}
-              {searched&&lastParams?.surgeryCode&&results.some(r=>r.surgFallback)&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>入力した手術 <span style={{fontFamily:M}}>{lastParams.surgeryCode}</span> はこの分類の定義テーブルにないため、「その他の手術あり（97）」の分岐で検索しました。</div>}
+              {searched&&lastParams?.surgeryCode&&results.some(r=>r.surgFallback)&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>入力した手術 <span style={{fontFamily:M}}>{lastParams.surgeryCode}</span> はこの分類の定義テーブルにないため、「その他の手術あり（97）」の分岐で検索しました。「〇〇術に準じて算定する」手術は準用元のKコードで判断します（保医発0321第6号 第2の1(6)）。</div>}
               {sortMode==="total"&&!sd&&searched&&displayedResults.length>0&&<div style={{fontSize:11,color:"#EF4444"}}>※入院日数を入力すると総点数でソート</div>}
 
               <div style={{display:"flex",gap:8}}>
@@ -603,7 +603,7 @@ export default function DPCTool(){
                   if(r.surgeryName&&r.surgeryName!=="なし")tags.push({l:"手術",v:r.surgeryName});
                   if(r.proc1Name&&r.proc1Name!=="-"){const a=r.proc1Name!=="なし";tags.push({l:"処置1",v:r.proc1Name,c:a?"#10B981":undefined,dim:!a});}
                   if(r.proc2Name&&r.proc2Name!=="-"){const a=r.proc2Name!=="なし";tags.push({l:"処置2",v:r.proc2Name,c:a?"#10B981":undefined,dim:!a});}
-                  if(r.subdiagName&&r.subdiagName!=="-"){const a=r.subdiagName!=="なし";const sdIcds=a?getSubdiagICDs(r.cls,r.sdVal):[];const sdSummary=sdIcds.length>0?` (${sdIcds.slice(0,3).map(ic=>ic.code+(ic.isPrefix?"~":"")).join(", ")}${sdIcds.length>3?" 他":""})`:"";tags.push({l:"副傷病",v:r.subdiagName+sdSummary,c:a?"#EA580C":undefined,dim:!a});}
+                  if(r.subdiagName&&r.subdiagName!=="-"){const a=r.subdiagName!=="なし";const sdIcds=a?getSubdiagICDs(r.cls,r.sdVal,r.surgVal):[];const sdSummary=sdIcds.length>0?` (${sdIcds.slice(0,3).map(ic=>ic.code+(ic.isPrefix?"~":"")).join(", ")}${sdIcds.length>3?" 他":""})`:"";tags.push({l:"副傷病",v:r.subdiagName+sdSummary,c:a?"#EA580C":undefined,dim:!a});}
                   if(r.severity)tags.push({l:"重症度",v:r.severity.label,c:"#F59E0B"});
 
                   return(

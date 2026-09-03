@@ -53,7 +53,7 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
     setNoResultHints(null);
     const combos = [...new Set(r.flatMap(x => x.comboHint || []))];
     const notes = [];
-    if (r.some(x => x.surgFallback)) notes.push(`${selSurg} はこの分類の定義テーブルにない手術のため、「その他の手術あり（97）」として候補を絞り込みます。`);
+    if (r.some(x => x.surgFallback)) notes.push(`${selSurg} はこの分類の定義テーブルにない手術のため、「その他の手術あり（97）」として候補を絞り込みます。準用手術は準用元のKコードで判断します（通知 第2の1(6)）。`);
     if (r.some(x => x.surgExcluded)) notes.push(NON_SURGERY_NOTE);
     if (combos.length) notes.push(`組み合わせ手術（${combos.join("、")}）は並列された全ての手術を実施した場合のみ該当します（通知 第2の3(4)）。該当する場合は手術欄で組み合わせを選択してください。`);
     setInfoMsg(notes.join(" "));
