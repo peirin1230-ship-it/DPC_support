@@ -260,6 +260,60 @@ export function isDekidakaOp(kCode) {
   return false;
 }
 /** 出来高算定（包括対象外）の一覧: コード付き（手術・検査）と、薬剤・対象患者の文言 */
+export const DEKIDAKA_BRANCH_NOTE = "包括評価の対象外（医科点数表算定コード、樹形図の点線分岐）です。該当する患者は医科点数表（出来高）で算定し、レセプトの摘要欄に該当する診断群分類番号（DPCコード）を記載します（保医発0321第6号 第2の1(1)なお書き）。";
+/** DPC行の分岐条件を1行の文章にする（出来高分岐一覧・判定根拠の表示用） */
+export function branchConditionText(r) {
+  const parts = [];
+  if (r.condLabel) parts.push(r.condLabel);
+  parts.push(isNA(r.surgVal) ? "手術による分岐なし" : `手術: ${r.surgeryName || "なし"}`);
+  if (r.hasP1Branch) parts.push(`処置等1: ${r.proc1Name}`);
+  if (r.hasP2Branch) parts.push(`処置等2: ${r.proc2Name}`);
+  if (r.hasSdBranch) parts.push(`副傷病: ${r.subdiagName}`);
+  if (r.severity) parts.push(`${r.severity.name}: ${r.severity.label}`);
+  return parts.join(" ／ ");
+}
+let _dkBranches = null;
+function dekidakaBranches() {
+  if (!_dkBranches) {
+    _dkBranches = [];
+    for (const [code, info] of Object.entries(D.dpc)) {
+      if (!(info[2] === "0" || info[2] === 0)) continue;
+      const r = toResult(code, info);
+      r.condition = branchConditionText(r);
+      const surgCodes = isNA(r.surgVal) ? [] : (D.sl[D.si?.[r.cls]?.[r.surgVal]] || []);
+      r._hay = normalize([r.cls, r.clsName, r.code, r.condition, ...surgCodes, ...surgCodes.map((k) => D.cn[k] || "")].join(" "));
+      _dkBranches.push(r);
+    }
+    _dkBranches.sort((a, b) => a.code.localeCompare(b.code));
+  }
+  return _dkBranches;
+}
+/**
+ * 出来高評価（医科点数表算定コード）のDPC分岐を検索する。
+ * query は 分類コード・分類名・DPCコード・分岐条件（手術名/処置等名/副傷病/重症度）・その手術区分のKコード・分類のICDコード/病名 に部分一致。
+ * mdc は上2桁で絞る。戻り値は分類コード順。
+ */
+export function searchDekidakaBranches({ query = "", mdc = "" } = {}) {
+  const qn = normalizeIcd(query);
+  const rows = [];
+  for (const r of dekidakaBranches()) {
+    if (mdc && !r.code.startsWith(mdc)) continue;
+    if (qn) {
+      let hit = r._hay.includes(qn);
+      if (!hit) hit = (D.icd[r.cls] || []).some((ic) => normalize(ic).startsWith(qn) || normalize(D.icn[ic] || "").includes(qn));
+      if (!hit) continue;
+    }
+    rows.push(r);
+  }
+  return rows;
+}
+/** 出来高分岐の件数（全体・MDC別・分類数） */
+export function dekidakaBranchStats() {
+  const all = dekidakaBranches();
+  const byMdc = {};
+  for (const r of all) byMdc[r.code.slice(0, 2)] = (byMdc[r.code.slice(0, 2)] || 0) + 1;
+  return { total: all.length, classes: new Set(all.map((r) => r.cls)).size, byMdc };
+}
 export function getDekidakaList() {
   const codes = Object.entries(D.dk || {}).map(([code, name]) => ({ code, name, kind: code.startsWith("K") ? "手術" : code.startsWith("D") ? "検査" : "その他" }));
   return { codes, drugs: D.dx?.dr || [], patients: D.dx?.pt || [] };

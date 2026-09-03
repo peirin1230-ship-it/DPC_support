@@ -470,6 +470,7 @@ export default function DPCTool(){
     const opts=(searched&&fe.length>0)?getBranchOptions(fe,drillP1,drillP2):{p1Items:[],p2Items:[]};
     return{displayed:disp,options:opts,total:fe.length};
   },[expandedDPCs,drillP1,drillP2,mdcFilter,searched,billingFilter]);
+  const dekidakaCount=useMemo(()=>(mdcFilter?expandedDPCs.filter(r=>r.cls.slice(0,2)===mdcFilter):expandedDPCs).filter(r=>r.isDekidaka).length,[expandedDPCs,mdcFilter]);
 
   const sd=parseInt(stayDays)||0;
   const icdWarns=[...selIcds,icdIn.trim()].map(c=>c&&icdWarning(c)).filter(Boolean);
@@ -571,7 +572,7 @@ export default function DPCTool(){
         </div>
         <button onClick={()=>setShowDk(true)} title="出来高算定（包括対象外）となる手術・検査・薬剤の一覧" style={{padding:isMobile?"6px 10px":"7px 14px",background:"#F5F5F5",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:isMobile?11:12,fontWeight:500,flexShrink:0,transition:"background .15s"}}
           onMouseEnter={e=>{e.currentTarget.style.background="#EBEBEB";}} onMouseLeave={e=>{e.currentTarget.style.background="#F5F5F5";}}>
-          {isMobile?"出来高":"出来高算定一覧"}
+          {isMobile?"出来高":"出来高分岐・算定一覧"}
         </button>
         <button onClick={()=>{setShowFb(true);setFbSent(false);setFbText("");}} style={{padding:isMobile?"6px 10px":"7px 14px",background:"#F5F5F5",border:"1px solid #E0E0E0",borderRadius:6,color:"#737373",cursor:"pointer",fontSize:isMobile?11:12,fontWeight:500,display:"flex",alignItems:"center",gap:5,flexShrink:0,transition:"background .15s"}}
           onMouseEnter={e=>{e.currentTarget.style.background="#EBEBEB";}} onMouseLeave={e=>{e.currentTarget.style.background="#F5F5F5";}}>
@@ -719,6 +720,9 @@ export default function DPCTool(){
                   onAddToCompare={code=>{const r=buildResultFromCode(code);if(r)toggleCmp(r);}}/>}
               </div>
               {searched&&<span style={{fontSize:13,color:"#737373"}}>{displayedResults.length>0?`${displayedResults.length}件`:"一致なし"}{(drillP1||drillP2)&&totalCount!==displayedResults.length?` (全${totalCount}件中)`:""}</span>}
+              {searched&&dekidakaCount>0&&<button onClick={()=>setBillingFilter(v=>v==="dekidaka"?"all":"dekidaka")} aria-pressed={billingFilter==="dekidaka"}
+                style={{padding:"5px 10px",background:billingFilter==="dekidaka"?"#E11D48":"#FFF7ED",border:"1px solid #FECACA",borderRadius:999,color:billingFilter==="dekidaka"?"#FFFFFF":"#B91C1C",cursor:"pointer",fontSize:11,fontWeight:700}}>
+                出来高分岐のみ（{dekidakaCount}）{billingFilter==="dekidaka"?" ✓":""}</button>}
             </div>
           </div>
 
@@ -856,7 +860,15 @@ export default function DPCTool(){
         addHistory({key:icd,icd:icd,surg:"",proc:"",drug:"",selIcds:[icd],selSurgs:[],selProcs:[],selDrugs:[],count:r2.length,label:icd});
       }}/>}
       {showIcd&&<IcdPanel results={results} onClose={()=>setShowIcd(false)} isMobile={isMobile}/>}
-      {showDk&&<DekidakaPanel onClose={()=>setShowDk(false)} isMobile={isMobile}/>}
+      {showDk&&<DekidakaPanel onClose={()=>setShowDk(false)} isMobile={isMobile}
+        onDetail={code=>{const r=buildResultFromCode(code);if(r)setDetail(r);}}
+        onOpenClass={cls=>{
+          setShowDk(false);if(mode!=="list")setMode("list");
+          setIcdIn("");setSelIcds([cls]);setSurgIn("");setSelSurgs([]);setProcIn("");setSelProcs([]);setDrugIn("");setSelDrugs([]);
+          setBillingFilter("dekidaka");
+          const r2=runSearch({icdCodes:[cls]},{resetMdc:true});
+          addHistory({key:cls,icd:cls,surg:"",proc:"",drug:"",selIcds:[cls],selSurgs:[],selProcs:[],selDrugs:[],count:r2.length,label:`${cls}（出来高分岐）`});
+        }}/>}
       {showFb&&<FeedbackModal onClose={()=>setShowFb(false)} fbText={fbText} setFbText={setFbText} fbSent={fbSent} setFbSent={setFbSent}/>}
     </div>
   );

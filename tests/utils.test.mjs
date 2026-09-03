@@ -8,7 +8,7 @@ import {
   searchDPC, getExpandedResults, expandForSuggest, filterDrillDown, getBranchOptions,
   getSubdiagICDs, getSurgeryOptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults,
   buildResultFromCode, resultsOfClass, dpcCodesOf, isDekidakaOp, getSimilarClassifications, searchDrug, searchDisease, searchSurg,
-  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage, searchProc, inputEffect, normalizeSearchParams, getNoResultHints } from "../src/utils.js";
+  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning, normalizeIcd, findClsInfo, stripSuspect, resolveIcdInput, icdNotFoundMessage, searchProc, inputEffect, normalizeSearchParams, getNoResultHints, searchDekidakaBranches, dekidakaBranchStats, branchConditionText } from "../src/utils.js";
 
 const X = "x";
 const first = (arr, pred) => arr.find(pred);
@@ -467,5 +467,28 @@ describe("複数入力の一括判定（手術・処置等・薬剤・病名候�
     // 分類に解決できないICDが混ざっていても、解決できる分類で検索できる
     assert.equal(searchDPC({ icdCodes: ["I200", "R509"] }).length, searchDPC({ icdCodes: ["I200"] }).length);
     assert.ok(getNoResultHints({ procCodes: ["D4195"] }).evalItems.length > 0);
+  });
+});
+
+describe("出来高評価（医科点数表算定コード）の分岐検索", () => {
+  test("全件は包括フラグ0のDPCと一致し、条件文・MDC絞込・検索語が機能する", () => {
+    const all = searchDekidakaBranches();
+    const expected = Object.entries(D.dpc).filter(([, d]) => d[2] === "0").map(([c]) => c).sort();
+    assert.deepEqual(all.map((r) => r.code).sort(), expected);
+    assert.ok(all.every((r) => r.isDekidaka && r.condition && r.condition === branchConditionText(r)));
+    const st = dekidakaBranchStats();
+    assert.equal(st.total, expected.length);
+    assert.equal(Object.values(st.byMdc).reduce((a, b) => a + b, 0), expected.length);
+    const m06 = searchDekidakaBranches({ mdc: "06" });
+    assert.ok(m06.length > 0 && m06.every((r) => r.code.startsWith("06")));
+    // 分類名・分類コード・ICD・手術Kコードで引ける
+    const byName = searchDekidakaBranches({ query: "脳腫瘍" });
+    assert.ok(byName.length > 0 && byName.every((r) => r.cls === "010010"));
+    assert.deepEqual(searchDekidakaBranches({ query: "010010" }).map((r) => r.code), byName.map((r) => r.code));
+    const byIcd = searchDekidakaBranches({ query: "C34" });
+    assert.ok(byIcd.length > 0 && byIcd.every((r) => (D.icd[r.cls] || []).some((ic) => ic.startsWith("C34"))));
+    const byK = searchDekidakaBranches({ query: "K672-2" });
+    assert.ok(byK.length > 0 && byK.every((r) => (D.sl[D.si[r.cls][r.surgVal]] || []).includes("K672-2")));
+    assert.deepEqual(searchDekidakaBranches({ query: "存在しない検索語XYZ" }), []);
   });
 });
