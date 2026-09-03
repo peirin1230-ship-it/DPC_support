@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback } from "react";
 import { D } from "../data";
 import { F, M } from "../styles";
-import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHas } from "../utils";
+import { calcTotal, totalVal, isDekidakaOp, searchDPC, searchDisease, searchSurg, searchProc, searchDrug, getExpandedResults, filterDrillDown, getBranchOptions, MDC_NAMES, getSubdiagICDs, buildResultFromCode, getIcdCandidates, getSurgeryOptionsFromResults, getP1OptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults, getSeverityOptionsFromResults, normalize, getNoResultHints, corrNum, slHasExact, combosContaining, surgKey, isNonSurgeryCode, NON_SURGERY_NOTE, icdWarning, COEFFICIENT_NOTE, getCondOptionsFromResults } from "../utils";
 import { addHistory, getFavorites, addFavorite, removeFavorite, addFeedback, getFeedbacks, exportFeedbacksJSON } from "../storage";
 import useIsMobile from "../useIsMobile";
 import AC from "./AC";
@@ -58,6 +58,7 @@ function SgOption({o,valueKey,active,onSelect,highlight}){
               <span key={c.code} style={{fontSize:10,color:hit?"#92400E":"#737373",background:hit?"#FEF3C7":"#F5F5F5",borderRadius:3,padding:"1px 5px",fontWeight:hit?700:400}}>
                 <span style={{fontFamily:M,color:hit?"#D97706":"#3B82F6"}}>{c.code}</span>
                 {c.name&&<span style={{marginLeft:2}}>{c.name}</span>}
+                {c.dkDrug&&<span style={{marginLeft:3,color:"#B45309",fontWeight:700}}>※出来高薬剤の可能性</span>}
               </span>
             );
           })}
@@ -81,30 +82,37 @@ function SgOption({o,valueKey,active,onSelect,highlight}){
   );
 }
 
-function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurgVal,sgP1Val,setSgP1Val,sgP2Val,setSgP2Val,sgSdVal,setSgSdVal,sgSevVal,setSgSevVal,sgInputSurg,onDetail,cmpList,toggleCmp,isMobile,onRestoreSearch,onJumpToCode}){
+function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgCondVal,setSgCondVal,sgSurgVal,setSgSurgVal,sgP1Val,setSgP1Val,sgP2Val,setSgP2Val,sgSdVal,setSgSdVal,sgSevVal,setSgSevVal,sgInputSurg,onDetail,cmpList,toggleCmp,isMobile,onRestoreSearch,onJumpToCode}){
   const[stepQuery,setStepQuery]=useState("");
   const[showSgHist,setShowSgHist]=useState(false);
   // When input surgery was selected on the left, filter to only DPCs where
   // the surgery group for that cls contains the input code (per-cls matching)
-  const{list:inputSurgFiltered,fallback:surgFallback}=useMemo(()=>{
-    if(!sgInputSurg)return{list:sgExpanded,fallback:false};
-    const direct=sgExpanded.filter(r=>{const idx=D.si?.[r.cls]?.[r.surgVal];return idx!==undefined&&slHas(D.sl[idx],sgInputSurg);});
-    if(direct.length)return{list:direct,fallback:false};
-    // 定義テーブルにない手術 → 「その他の手術あり(97)」／手術による分岐なし(xx) の候補で絞り込む
-    return{list:sgExpanded.filter(r=>r.surgVal==="97"||r.surgVal==="xx"),fallback:true};
+  // 入力手術は定義テーブルの完全一致で区分を決める（"K1+K2" は組み合わせとして選択された場合のみ。通知 第2の3(4)）。
+  // 一致しなければ 97（その他の手術あり）／xx（手術による分岐なし）に絞る。手術等管理料・輸血管理料は手術なし(99)。
+  const{list:inputSurgFiltered,fallback:surgFallback,excluded:surgExcluded,comboHint}=useMemo(()=>{
+    if(!sgInputSurg)return{list:sgExpanded,fallback:false,excluded:false,comboHint:[]};
+    if(isNonSurgeryCode(sgInputSurg))return{list:sgExpanded.filter(r=>r.surgVal==="99"||r.surgVal==="xx"),fallback:false,excluded:true,comboHint:[]};
+    const direct=sgExpanded.filter(r=>{const idx=D.si?.[r.cls]?.[r.surgVal];return idx!==undefined&&slHasExact(D.sl[idx],sgInputSurg);});
+    const hints=[...new Set(sgExpanded.flatMap(r=>{const idx=D.si?.[r.cls]?.[r.surgVal];return idx===undefined?[]:combosContaining(D.sl[idx],sgInputSurg);}))];
+    if(direct.length)return{list:direct,fallback:false,excluded:false,comboHint:hints};
+    return{list:sgExpanded.filter(r=>r.surgVal==="97"||r.surgVal==="xx"),fallback:true,excluded:false,comboHint:hints};
   },[sgExpanded,sgInputSurg]);
+  // 7-8桁目（病態等分類・年齢・JCS等）の条件ステップ（条件が複数ある分類のみ）
+  const condOpts=useMemo(()=>sgSearched&&inputSurgFiltered.length>0?getCondOptionsFromResults(inputSurgFiltered):null,[inputSurgFiltered,sgSearched]);
+  const effCond=useMemo(()=>{if(!condOpts)return null;if(condOpts.length===1)return condOpts[0].condVal;return sgCondVal;},[condOpts,sgCondVal]);
+  const afterCond=useMemo(()=>(!condOpts||effCond===null)?inputSurgFiltered:inputSurgFiltered.filter(r=>r.pos78===effCond),[inputSurgFiltered,condOpts,effCond]);
   // p1/p2 constraints are already applied in expandForSuggest (same logic as getExpandedResults)
-  const surgOpts=useMemo(()=>sgSearched&&inputSurgFiltered.length>0?getSurgeryOptionsFromResults(inputSurgFiltered):[],[inputSurgFiltered,sgSearched]);
+  const surgOpts=useMemo(()=>sgSearched&&afterCond.length>0?getSurgeryOptionsFromResults(afterCond):[],[afterCond,sgSearched]);
   const effSurg=useMemo(()=>{
     if(sgInputSurg)return"__inputSurg__";
     if(surgOpts.length===1)return surgOpts[0].surgVal;
     return sgSurgVal;
   },[surgOpts,sgSurgVal,sgInputSurg]);
   const afterSurg=useMemo(()=>{
-    if(sgInputSurg)return inputSurgFiltered;
-    if(effSurg===null)return inputSurgFiltered;
-    return inputSurgFiltered.filter(r=>`${r.surgVal}::${r.surgeryName||"なし"}`===effSurg);
-  },[inputSurgFiltered,effSurg,sgInputSurg]);
+    if(sgInputSurg)return afterCond;
+    if(effSurg===null)return afterCond;
+    return afterCond.filter(r=>surgKey(r)===effSurg); // 選択肢と行で同じキー関数を使う
+  },[afterCond,effSurg,sgInputSurg]);
   const p1Opts=useMemo(()=>effSurg===null?null:getP1OptionsFromResults(afterSurg),[afterSurg,effSurg]);
   const effP1=useMemo(()=>{if(!p1Opts||!p1Opts.length)return null;if(p1Opts.length===1)return p1Opts[0].p1Val;return sgP1Val;},[p1Opts,sgP1Val]);
   const afterP1=useMemo(()=>{
@@ -132,6 +140,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
 
   // Determine current step (needXxx = true only when >1 option = user must choose)
   // When input surgery code is set, surgery step is skipped entirely (per-cls filter)
+  const needCond=!!(condOpts&&condOpts.length>1);
   const needSurg=surgOpts.length>1&&!sgInputSurg;
   const needP1=p1Opts&&p1Opts.length>1;
   const needP2=p2Opts&&p2Opts.length>1;
@@ -140,7 +149,8 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
 
   // Which step are we on?
   let currentStep=null;
-  if(effSurg===null&&needSurg)currentStep="surg";
+  if(needCond&&effCond===null)currentStep="cond";
+  else if(effSurg===null&&needSurg)currentStep="surg";
   else if(effSurg!==null&&needP1&&effP1===null)currentStep="p1";
   else if(effSurg!==null&&(!needP1||effP1!==null)&&needP2&&effP2===null)currentStep="p2";
   else if(effSurg!==null&&(!needP1||effP1!==null)&&(!needP2||effP2!==null)&&needSd&&effSd===null)currentStep="sd";
@@ -149,6 +159,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
 
   // Completed selections summary
   const selections=[];
+  if(effCond!==null&&condOpts){const o=condOpts.find(x=>x.condVal===effCond);if(o)selections.push({label:"条件",value:o.label,setter:needCond?setSgCondVal:null});}
   if(effSurg!==null&&!sgInputSurg){const o=surgOpts.find(x=>x.surgVal===effSurg);if(o)selections.push({label:"手術",value:o.label,setter:needSurg?setSgSurgVal:null});}
   if(effP1!==null&&p1Opts){const o=p1Opts.find(x=>x.p1Val===effP1);if(o)selections.push({label:"処置等1",value:o.label,setter:needP1?setSgP1Val:null});}
   if(effP2!==null&&p2Opts){const o=p2Opts.find(x=>x.p2Val===effP2);if(o)selections.push({label:"処置等2",value:o.label,setter:needP2?setSgP2Val:null});}
@@ -189,7 +200,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
     }
   };
 
-  const stepTitles={surg:"実施した手術を選択してください",p1:"手術・処置等1を選択してください",p2:"手術・処置等2を選択してください",sd:"副傷病を選択してください",sev:"重症度を選択してください"};
+  const stepTitles={cond:"病態等分類・年齢等の条件を選択してください",surg:"実施した手術を選択してください",p1:"手術・処置等1を選択してください",p2:"手術・処置等2を選択してください",sd:"副傷病を選択してください",sev:"重症度を選択してください"};
 
   return(
     <div style={{flex:1,display:"flex",flexDirection:"column",overflow:"hidden"}}>
@@ -205,6 +216,8 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
             }}/>}
         </div>
         {surgFallback&&<span style={{fontSize:11,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"4px 8px"}}>入力手術 <span style={{fontFamily:M}}>{sgInputSurg}</span> は定義テーブルにないため「その他の手術あり」で絞り込み</span>}
+        {surgExcluded&&<span style={{fontSize:11,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"4px 8px"}}>{NON_SURGERY_NOTE}</span>}
+        {comboHint.length>0&&<span style={{fontSize:11,color:"#92400E",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"4px 8px"}}>組み合わせ手術（<span style={{fontFamily:M}}>{comboHint.join("、")}</span>）は並列された全ての手術を実施した場合のみ該当します（通知 第2の3(4)）。該当する場合は左の手術欄で組み合わせを選択してください</span>}
         {selections.map((s,i)=>(
           <span key={i} style={{background:"#F5F5F5",borderRadius:6,padding:"4px 10px",fontSize:12,display:"inline-flex",alignItems:"center",gap:4}}>
             <span style={{color:"#737373"}}>{s.label}:</span>
@@ -242,6 +255,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
             )}
             <div style={{display:"flex",flexDirection:"column",gap:6}}>
               {(()=>{const hi=stepQuery.trim()?normalize(stepQuery.trim()):"";return(<>
+              {currentStep==="cond"&&condOpts.map(o=><SgOption key={o.condVal} o={o} valueKey="condVal" active={sgCondVal===o.condVal} onSelect={v=>{setSgCondVal(v);setStepQuery("");}} highlight={hi}/>)}
               {currentStep==="surg"&&surgOpts.map(o=><SgOption key={o.surgVal} o={o} valueKey="surgVal" active={sgSurgVal===o.surgVal} onSelect={v=>{setSgSurgVal(v);setStepQuery("");}} highlight={hi}/>)}
               {currentStep==="p1"&&p1Opts.map(o=><SgOption key={o.p1Val} o={o} valueKey="p1Val" active={sgP1Val===o.p1Val} onSelect={v=>{setSgP1Val(v);setStepQuery("");}} highlight={hi}/>)}
               {currentStep==="p2"&&p2Opts.map(o=><SgOption key={o.p2Val} o={o} valueKey="p2Val" active={sgP2Val===o.p2Val} onSelect={v=>{setSgP2Val(v);setStepQuery("");}} highlight={hi}/>)}
@@ -329,7 +343,7 @@ function SuggestRightPanel({sgExpanded,sgStayDays,sgSearched,sgSurgVal,setSgSurg
   );
 }
 
-const mkSgTab=()=>({expanded:[],stayDays:0,searched:false,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:""});
+const mkSgTab=()=>({expanded:[],stayDays:0,searched:false,condVal:null,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:""});
 
 export default function DPCTool(){
   const isMobile=useIsMobile();
@@ -340,7 +354,7 @@ export default function DPCTool(){
   const[sgTabs,setSgTabs]=useState([mkSgTab(),mkSgTab()]);
   const sg=sgTabs[sgTabIdx];
   const setSg=fn=>setSgTabs(prev=>{const next=[...prev];next[sgTabIdx]=typeof fn==="function"?fn(next[sgTabIdx]):{...next[sgTabIdx],...fn};return next;});
-  const mkSgSearchCb=i=>(exp,sd,inputSurg)=>{setSgTabs(prev=>{const next=[...prev];next[i]={expanded:exp,stayDays:sd,searched:true,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:inputSurg||""};return next;});};
+  const mkSgSearchCb=i=>(exp,sd,inputSurg)=>{setSgTabs(prev=>{const next=[...prev];next[i]={expanded:exp,stayDays:sd,searched:true,condVal:null,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null,inputSurg:inputSurg||""};return next;});};
   const mkSgResetCb=i=>()=>{setSgTabs(prev=>{const next=[...prev];next[i]=mkSgTab();return next;});};
   const sgSearchCb0=useCallback(mkSgSearchCb(0),[]);const sgSearchCb1=useCallback(mkSgSearchCb(1),[]);
   const sgResetCb0=useCallback(mkSgResetCb(0),[]);const sgResetCb1=useCallback(mkSgResetCb(1),[]);
@@ -421,6 +435,8 @@ export default function DPCTool(){
   },[expandedDPCs,drillP1,drillP2,mdcFilter,searched]);
 
   const sd=parseInt(stayDays)||0;
+  const icdWarn=icdWarning(selIcd||icdIn.trim());
+  const comboHints=[...new Set(results.flatMap(r=>r.comboHint||[]))];
   const sorted=[...displayedResults].sort((a,b)=>{
     if(sortMode==="period")return(b.days[2]||0)-(a.days[2]||0);
     if(sd>0)return totalVal(b.days,b.points,sd)-totalVal(a.days,a.points,sd);
@@ -495,6 +511,7 @@ export default function DPCTool(){
                   <input id="list-stay-days" type="number" min="1" max="365" value={stayDays} onChange={e=>setStayDays(e.target.value)} placeholder="14"
                     style={{width:"100%",padding:"8px 10px",border:"1.5px solid #E0E0E0",borderRadius:6,background:"#FFFFFF",color:"#404040",fontSize:14,outline:"none",transition:"border-color .15s, box-shadow .15s"}}
                     onFocus={e=>{e.target.style.borderColor="#404040";e.target.style.boxShadow="0 0 0 3px rgba(64,64,64,.1)";}} onBlur={e=>{e.target.style.borderColor="#E0E0E0";e.target.style.boxShadow="none";}} />
+                  <div style={{fontSize:10,color:"#8B8B8B",marginTop:3,lineHeight:1.4}}>{COEFFICIENT_NOTE}</div>
                 </div>
                 <div>
                   <label htmlFor="list-sort-mode" style={{display:"block",fontSize:11,color:"#737373",marginBottom:3,fontWeight:600}}>並び替え</label>
@@ -518,6 +535,9 @@ export default function DPCTool(){
 
               {dekidakaWarn&&<div role="alert" style={{background:"rgba(239,68,68,.08)",border:"1px solid rgba(239,68,68,.25)",borderRadius:6,padding:"8px 12px",fontSize:13,color:"#EF4444"}}>{dekidakaWarn}</div>}
 
+              {icdWarn&&<div role="alert" style={{background:icdWarn.level==="forbid"?"rgba(239,68,68,.08)":"#FFFBEB",border:icdWarn.level==="forbid"?"1px solid rgba(239,68,68,.25)":"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:icdWarn.level==="forbid"?"#B91C1C":"#92400E"}}>{icdWarn.text}</div>}
+              {searched&&results.some(r=>r.surgExcluded)&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>{NON_SURGERY_NOTE}</div>}
+              {searched&&lastParams?.surgeryCode&&comboHints.length>0&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>入力した手術 <span style={{fontFamily:M}}>{lastParams.surgeryCode}</span> を含む組み合わせ手術（<span style={{fontFamily:M}}>{comboHints.join("、")}</span>）は、並列された全ての手術を実施した場合のみ該当します（保医発0321第6号 第2の3(4)）。該当する場合は手術欄で組み合わせを選択してください。</div>}
               {searched&&lastParams?.surgeryCode&&results.some(r=>r.surgFallback)&&<div role="status" style={{background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:6,padding:"8px 12px",fontSize:12,color:"#92400E"}}>入力した手術 <span style={{fontFamily:M}}>{lastParams.surgeryCode}</span> はこの分類の定義テーブルにないため、「その他の手術あり（97）」の分岐で検索しました。</div>}
               {sortMode==="total"&&!sd&&searched&&displayedResults.length>0&&<div style={{fontSize:11,color:"#EF4444"}}>※入院日数を入力すると総点数でソート</div>}
 
@@ -689,6 +709,7 @@ export default function DPCTool(){
           </div>
          </>):(<SuggestRightPanel
             sgExpanded={sg.expanded} sgStayDays={sg.stayDays} sgSearched={sg.searched}
+            sgCondVal={sg.condVal} setSgCondVal={v=>setSg(t=>({...t,condVal:v,surgVal:null,p1Val:null,p2Val:null,sdVal:null,sevVal:null}))}
             sgSurgVal={sg.surgVal} setSgSurgVal={v=>setSg(t=>({...t,surgVal:v,p1Val:null,p2Val:null,sdVal:null,sevVal:null}))}
             sgP1Val={sg.p1Val} setSgP1Val={v=>setSg(t=>({...t,p1Val:v,p2Val:null,sdVal:null,sevVal:null}))}
             sgP2Val={sg.p2Val} setSgP2Val={v=>setSg(t=>({...t,p2Val:v,sdVal:null,sevVal:null}))}

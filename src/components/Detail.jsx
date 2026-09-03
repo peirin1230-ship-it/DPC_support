@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { D } from "../data";
 import { M } from "../styles";
-import { calcTotal, cleanName, getSubdiagICDs, classSurgVals } from "../utils";
+import { calcTotal, cleanName, getSubdiagICDs, classSurgVals, corrToDigit, COEFFICIENT_NOTE, SUBDIAG_NOTE, severityNote, conditionNote } from "../utils";
 import useModal from "../useModal";
 import SimChart from "./SimChart";
 import SimilarCls from "./SimilarCls";
@@ -88,6 +88,7 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
                 <div style={{ color: "#737373", fontSize: 12 }}>{sd}日入院の総点数{tot.overDays > 0 ? <span style={{ color: "#EF4444" }}> （うち{tot.overDays}日は出来高）</span> : ""}</div>
                 <div style={{ fontFamily: M, fontWeight: 800, color: "#F59E0B", fontSize: 28 }}>{tot.total.toLocaleString()}<span style={{ fontSize: 13, color: "#737373", fontWeight: 400 }}>点</span></div>
                 {tot.overDays > 0 && <div style={{ color: "#C0392B", fontSize: 11, marginTop: 4 }}>※上記はDPC包括分のみの点数です（出来高{tot.overDays}日分は含まれていません）</div>}
+                <div style={{ color: "#8B8B8B", fontSize: 10, marginTop: 4 }}>{COEFFICIENT_NOTE}</div>
               </div>
             )}
             <button onClick={() => setShowChart(true)} style={{ width: "100%", marginTop: 8, padding: "8px 0", background: "#FAFAFA", border: "1px solid #E0E0E0", borderRadius: 6, color: "#3B82F6", cursor: "pointer", fontSize: 13, fontWeight: 600, transition: "background .15s, border-color .15s" }}
@@ -113,6 +114,7 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
                 副傷病 対象ICD（{sdICDs.length}件）
                 {r.surgVal === "99" ? "・手術なしの場合" : r.hasSurgBranch ? "・手術ありの場合" : ""}
               </div>
+              <div style={{ fontSize: 10, color: "#8B8B8B", marginBottom: 4 }}>{SUBDIAG_NOTE}</div>
               {sdICDs.map((ic, i) => (
                 <div key={i} style={{ fontSize: 12, color: "#737373", padding: "1px 0", display: "flex", gap: 6 }}>
                   <span style={{ color: "#EA580C", fontFamily: M, flexShrink: 0, minWidth: 48, fontSize: 11 }}>{ic.code}{ic.isPrefix ? "~" : ""}</span>
@@ -123,7 +125,9 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
             </div>
           )}
           {r.severity && <Row l={`重症度等（${r.severity.name}）`} v={r.severity.label} c="#F59E0B" />}
+          {r.severity && severityNote(r.severity.name) && <div style={{ fontSize: 10, color: "#8B8B8B", padding: "2px 0 4px" }}>{severityNote(r.severity.name)}</div>}
           {r.condLabel && <Row l="病態等分類・年齢等" v={r.condLabel} c="#F59E0B" />}
+          {r.condLabel && conditionNote(cls) && <div style={{ fontSize: 10, color: "#8B8B8B", padding: "2px 0 4px" }}>{conditionNote(cls)}</div>}
           {r.ccpm && <Row l="CCPM対応（支払分類）" v={r.ccpm} />}
         </div>
         {svEntries.length > 1 && (
@@ -169,7 +173,7 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
                 const conds = codes.filter(c => pc[c]);
                 return (
                   <div key={i} style={{ color: "#404040", marginBottom: 3, fontSize: 12 }}>
-                    <span style={{ fontFamily: M, color: corr === r.p1Val ? "#F59E0B" : "#3B82F6", fontWeight: corr === r.p1Val ? 700 : 400, fontSize: 11 }}>[{corr}]</span>{" "}
+                    <span style={{ fontFamily: M, color: corrToDigit(cls, r.surgVal, "1", corr) === r.p1Val ? "#F59E0B" : "#3B82F6", fontWeight: corrToDigit(cls, r.surgVal, "1", corr) === r.p1Val ? 700 : 400, fontSize: 11 }}>[{corr}]</span>{" "}
                     {codes.slice(0, 3).map(c => codeWithName(c)).join(", ")}
                     {codes.length > 3 && <span style={{ color: "#A3A3A3" }}> 他{codes.length - 3}件</span>}
                     {conds.map(c => (
@@ -184,7 +188,7 @@ export default function Detail({ r, onClose, sd, onSearchCls, isMobile }) {
             <Sec title={`処置等２定義（${Object.keys(p2e).length}区分）`}>
               {Object.entries(p2e).sort((a, b) => parseInt(b[0] || 0, 36) - parseInt(a[0] || 0, 36)).map(([corr, codes], i) => (
                 <div key={i} style={{ color: "#404040", marginBottom: 3, fontSize: 12 }}>
-                  <span style={{ fontFamily: M, color: corr === r.p2Val ? "#F59E0B" : "#3B82F6", fontWeight: corr === r.p2Val ? 700 : 400, fontSize: 11 }}>[{corr}]</span>{" "}
+                  <span style={{ fontFamily: M, color: corrToDigit(cls, r.surgVal, "2", corr) === r.p2Val ? "#F59E0B" : "#3B82F6", fontWeight: corrToDigit(cls, r.surgVal, "2", corr) === r.p2Val ? 700 : 400, fontSize: 11 }}>[{corr}]</span>{" "}
                   {codes.slice(0, 3).map(c => { const n = D.cn[c] || ""; const a = D.da?.[c]; const d = a?.length ? `${n}(${a[0]})` : n; return `${c}(${d.slice(0, 20)})`; }).join(", ")}
                   {codes.length > 3 && <span style={{ color: "#A3A3A3" }}> 他{codes.length - 3}件</span>}
                 </div>

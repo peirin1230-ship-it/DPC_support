@@ -22,6 +22,7 @@ export default function DrillDown({options,drillP1,drillP2,onSelectP1,onSelectP2
               onMouseLeave={e=>{e.currentTarget.style.borderColor="#E0E0E0";e.currentTarget.style.background="#FAFAFA";}}>
               <span style={{color:"#3B82F6",fontFamily:M,fontSize:11,flexShrink:0,minWidth:70}}>{item.code}</span>
               <span style={{color:"#404040",flex:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{dispName?dispName.slice(0,30):""}</span>
+              {item.dkDrug&&<span title="厚生労働大臣が定める出来高算定薬剤の一般名と一致します（効能等の条件付き）" style={{fontSize:10,color:"#B45309",background:"#FFFBEB",border:"1px solid #FDE68A",borderRadius:3,padding:"0 4px",flexShrink:0}}>出来高薬剤の可能性</span>}
             </button>
           );
         })}

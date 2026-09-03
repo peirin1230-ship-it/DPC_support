@@ -1,5 +1,5 @@
 import { useState, useCallback, useId } from "react";
-import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findCls, getNoResultHints } from "../utils";
+import { searchDPC, expandForSuggest, searchDisease, searchSurg, searchProc, searchDrug, isDekidakaOp, findCls, getNoResultHints, icdWarning, NON_SURGERY_NOTE } from "../utils";
 import { D } from "../data";
 import { M } from "../styles";
 import AC from "./AC";
@@ -51,9 +51,12 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
       onSearch([], sd, selSurg || ""); return;
     }
     setNoResultHints(null);
-    setInfoMsg(r.some(x => x.surgFallback)
-      ? `${selSurg} はこの分類の定義テーブルにない手術のため、「その他の手術あり（97）」として候補を絞り込みます。`
-      : "");
+    const combos = [...new Set(r.flatMap(x => x.comboHint || []))];
+    const notes = [];
+    if (r.some(x => x.surgFallback)) notes.push(`${selSurg} はこの分類の定義テーブルにない手術のため、「その他の手術あり（97）」として候補を絞り込みます。`);
+    if (r.some(x => x.surgExcluded)) notes.push(NON_SURGERY_NOTE);
+    if (combos.length) notes.push(`組み合わせ手術（${combos.join("、")}）は並列された全ての手術を実施した場合のみ該当します（通知 第2の3(4)）。該当する場合は手術欄で組み合わせを選択してください。`);
+    setInfoMsg(notes.join(" "));
     const sg = expandForSuggest(r, p);
     onSearch(sg.expanded, sd, selSurg || "");
   }, [selIcd, icdIn, selSurg, selProc, selDrug, onSearch, stayDays]);
@@ -82,6 +85,7 @@ export default function SuggestWizard({ onSearch, onReset: parentReset }) {
           onBlur={e => { e.target.style.borderColor = !stayDays ? "#FCA5A5" : "#E0E0E0"; e.target.style.boxShadow = "none"; }} />
       </div>
       {dekidakaWarn && <div role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{dekidakaWarn}</div>}
+      {(() => { const w = icdWarning(selIcd || icdIn.trim()); return w ? <div role="alert" style={{ background: w.level === "forbid" ? "rgba(239,68,68,.08)" : "#FFFBEB", border: w.level === "forbid" ? "1px solid rgba(239,68,68,.25)" : "1px solid #FDE68A", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: w.level === "forbid" ? "#B91C1C" : "#92400E" }}>{w.text}</div> : null; })()}
       {infoMsg && <div role="status" style={{ background: "#FFFBEB", border: "1px solid #FDE68A", borderRadius: 6, padding: "8px 12px", fontSize: 12, color: "#92400E" }}>{infoMsg}</div>}
       {errMsg && <div id={errId} role="alert" style={{ background: "rgba(239,68,68,.08)", border: "1px solid rgba(239,68,68,.25)", borderRadius: 6, padding: "8px 12px", fontSize: 13, color: "#EF4444" }}>{errMsg}</div>}
       {noResultHints && (

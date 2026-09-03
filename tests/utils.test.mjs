@@ -8,7 +8,7 @@ import {
   searchDPC, getExpandedResults, expandForSuggest, filterDrillDown, getBranchOptions,
   getSubdiagICDs, getSurgeryOptionsFromResults, getP2OptionsFromResults, getSubdiagOptionsFromResults,
   buildResultFromCode, resultsOfClass, dpcCodesOf, isDekidakaOp, getSimilarClassifications, searchDrug, searchDisease, searchSurg,
-  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY,
+  NO_SURG_BRANCH_LABEL, CODE_NO_SURGERY, corrToDigit, surgKey, getCondOptionsFromResults, isNonSurgeryCode, icdWarning,
 } from "../src/utils.js";
 
 const X = "x";
@@ -139,14 +139,79 @@ describe("searchDPC", () => {
     assert.equal(r.length, dpcCodesOf(cls).length);
     for (const x of r) { assert.equal(x.surgeryName, ""); assert.equal(x.hasSurgBranch, false); }
   });
-  test("処置等2コード検索: 該当分類の相関値に一致（分岐なし x は許容）", () => {
+  test("処置等2コード検索: 該当分類の相関値に一致（分岐なし x は許容）、処置等1は制約しない", () => {
     const [cls, grp] = first(Object.entries(D.p2), ([c, g]) => Object.keys(g).some((cv) => cv !== "0" && dpcCodesOf(c).some((code) => code[11] === cv)));
     const cv = Object.keys(grp).find((k) => k !== "0" && dpcCodesOf(cls).some((code) => code[11] === k));
     const code = grp[cv][0];
     const r = searchDPC({ procAnyCode: code });
     const mine = r.filter((x) => x.cls === cls);
     assert.ok(mine.length > 0);
-    for (const x of mine) { assert.ok(x.p2Val === cv || x.p2Val === X, x.code); assert.ok(x.p1Val === "0" || x.p1Val === X, x.code); }
+    for (const x of mine) assert.ok(x.p2Val === corrToDigit(cls, x.surgVal, "2", cv) || x.p2Val === X, x.code);
+    const p1Vals = new Set(dpcCodesOf(cls).filter((c) => c[11] === cv || c[11] === X).map((c) => c[10]));
+    assert.deepEqual(new Set(mine.map((x) => x.p1Val)), p1Vals, "処置等1の全分岐が残る");
+  });
+  test("変換テーブルの縮約（対応コード→桁）を反映して処置等1を照合する", () => {
+    const cls = Object.keys(D.cv)[0];
+    if (!cls) return;
+    const sv = Object.keys(D.cv[cls]).find((s) => D.cv[cls][s]["1"]);
+    if (!sv) return;
+    const [corr, digit] = Object.entries(D.cv[cls][sv]["1"])[0];
+    assert.notEqual(corr, digit);
+    assert.equal(corrToDigit(cls, sv, "1", corr), digit);
+    const procCode = (D.p1[cls][corr] || []).find((c) => !c.includes("+"));
+    const kcode = (D.sl[D.si[cls][sv]] || []).find((k) => !k.includes("+") && !k.startsWith("KKK"));
+    const icd = D.icd[cls].find((x) => x !== ICD_M_WILDCARD).replace(/\$$/, "0");
+    assert.ok(procCode && kcode, `${cls}/${sv}: テストデータ不足`);
+    const r = searchDPC({ icdCode: icd, surgeryCode: kcode, procAnyCode: procCode }).filter((x) => x.cls === cls);
+    assert.ok(r.length > 0, `${cls} ${kcode} ${procCode}: 該当なしになる（縮約未反映）`);
+    for (const x of r) { assert.equal(x.surgVal, sv); assert.equal(x.p1Val, digit); }
+  });
+  test("処置等コードと薬剤コードを同時入力すると相関値の大きい方（下から優先）を採る", () => {
+    for (const [cls, grp] of Object.entries(D.p2)) {
+      const cvs = Object.keys(grp).filter((k) => k !== "0").sort((a, b) => corrNum(a) - corrNum(b));
+      if (cvs.length < 2) continue;
+      const low = cvs[0], high = cvs[cvs.length - 1];
+      const proc = grp[low].find((c) => !/^\d{4}$/.test(c) && !c.includes("+"));
+      const drug = grp[high].find((c) => /^\d{4}$/.test(c));
+      if (!proc || !drug) continue;
+      const icd = D.icd[cls].find((x) => x !== ICD_M_WILDCARD).replace(/\$$/, "0");
+      const r = searchDPC({ icdCode: icd, procAnyCode: proc, drugCode: drug }).filter((x) => x.cls === cls);
+      if (!r.length) continue;
+      for (const x of r) assert.ok(x.p2Val === corrToDigit(cls, x.surgVal, "2", high) || x.p2Val === X, `${cls}: ${x.code}`);
+      return;
+    }
+  });
+  test("組み合わせ手術 K1+K2: 片方のコードだけでは組み合わせの区分に確定せず、ヒントを付ける", () => {
+    for (const [cls, si] of Object.entries(D.si)) {
+      const standalone = new Set(Object.values(si).flatMap((idx) => (D.sl[idx] || []).filter((k) => !k.includes("+"))));
+      let found = null;
+      for (const [sv, idx] of Object.entries(si)) for (const e of D.sl[idx] || []) {
+        if (!e.includes("+")) continue;
+        const comp = e.split("+").find((p) => !standalone.has(p));
+        if (comp) { found = { sv, e, comp }; break; }
+      }
+      if (!found || !D.icd[cls]) continue;
+      const icd = D.icd[cls].find((x) => x !== ICD_M_WILDCARD).replace(/\$$/, "0");
+      const r = searchDPC({ icdCode: icd, surgeryCode: found.comp }).filter((x) => x.cls === cls);
+      assert.ok(r.length > 0);
+      for (const x of r) { assert.notEqual(x.surgVal, found.sv, `${cls}: 片方のみで ${found.e} の区分に確定`); assert.ok((x.comboHint || []).includes(found.e)); }
+      const r2 = searchDPC({ icdCode: icd, surgeryCode: found.e }).filter((x) => x.cls === cls);
+      assert.ok(r2.length > 0 && r2.every((x) => x.surgVal === found.sv), "組み合わせを選択すれば確定する");
+      return;
+    }
+  });
+  test("手術等管理料・輸血管理料（K914〜K917, K920-2）は手術なし(99)として扱う", () => {
+    assert.ok(isNonSurgeryCode("K920-2") && isNonSurgeryCode("K915") && !isNonSurgeryCode("K920") && !isNonSurgeryCode("K546"));
+    const cls = first(Object.keys(D.cls), (c) => dpcCodesOf(c).some((code) => code.slice(8, 10) === "99") && dpcCodesOf(c).some((code) => code.slice(8, 10) === "97"));
+    const icd = D.icd[cls].find((x) => x !== ICD_M_WILDCARD).replace(/\$$/, "0");
+    const r = searchDPC({ icdCode: icd, surgeryCode: "K920-2" }).filter((x) => x.cls === cls);
+    assert.ok(r.length > 0);
+    for (const x of r) { assert.equal(x.surgVal, "99"); assert.equal(x.surgExcluded, true); assert.ok(!x.surgFallback); }
+  });
+  test("icdWarning: C97・T14 は選択不可、T08/T10/T12 は留意", () => {
+    assert.equal(icdWarning("C97").level, "forbid"); assert.equal(icdWarning("T140").level, "forbid"); assert.equal(icdWarning("T14").level, "forbid");
+    assert.equal(icdWarning("T08").level, "caution"); assert.equal(icdWarning("T129").level, "caution");
+    assert.equal(icdWarning("I200"), null); assert.equal(icdWarning("C970"), null);
   });
   test("条件なしは空配列", () => { assert.deepEqual(searchDPC({}), []); });
 });
@@ -160,7 +225,7 @@ describe("展開・ドリルダウン", () => {
     const exp = getExpandedResults(base, p);
     const pairs = new Set(base.map((x) => `${x.cls}_${x.surgVal}`));
     for (const x of exp) assert.ok(pairs.has(`${x.cls}_${x.surgVal}`));
-    for (const x of exp) if (x.cls === cls) assert.ok(x.p2Val === cv || x.p2Val === X);
+    for (const x of exp) if (x.cls === cls) assert.ok(x.p2Val === corrToDigit(cls, x.surgVal, "2", cv) || x.p2Val === X);
     const noProc = getExpandedResults(searchDPC({ icdCode: D.icd[cls].find((x) => x !== ICD_M_WILDCARD).replace(/\$$/, "0") }));
     assert.ok(noProc.filter((x) => x.cls === cls).length === dpcCodesOf(cls).length);
   });
@@ -179,14 +244,39 @@ describe("展開・ドリルダウン", () => {
     const filtered = filterDrillDown(all, null, drill);
     for (const x of filtered) assert.ok(x.p2Val === cvs[0] || x.p2Val === X);
   });
-  test("expandForSuggest: 分岐なし分類でも候補が出る", () => {
+  test("expandForSuggest: 分岐なし分類でも候補が出、選択肢のキーと行のキー（surgKey）が一致する", () => {
     const cls = first(Object.keys(D.cls), (c) => dpcCodesOf(c).every((code) => code.slice(8, 10) === "xx"));
     const icd = D.icd[cls].find((x) => x !== ICD_M_WILDCARD).replace(/\$$/, "0");
     const base = searchDPC({ icdCode: icd }).filter((x) => x.cls === cls);
     const { expanded } = expandForSuggest(base, {});
-    assert.equal(expanded.filter((x) => x.cls === cls).length, dpcCodesOf(cls).length);
-    const opts = getSurgeryOptionsFromResults(expanded.filter((x) => x.cls === cls));
-    assert.equal(opts.length, 1); assert.equal(opts[0].label, NO_SURG_BRANCH_LABEL);
+    const rows = expanded.filter((x) => x.cls === cls);
+    assert.equal(rows.length, dpcCodesOf(cls).length);
+    const opts = getSurgeryOptionsFromResults(rows);
+    assert.equal(opts.length, 1); assert.ok(opts[0].label.startsWith(NO_SURG_BRANCH_LABEL));
+    assert.ok(rows.every((x) => surgKey(x) === opts[0].surgVal), "SuggestRightPanel の絞り込みキーが一致しない（0件になる回帰）");
+  });
+  test("サジェスト経路: 全分類で手術ステップの選択肢キーが行キーと一致し、絞り込みが空にならない", () => {
+    for (const cls of Object.keys(D.cls)) {
+      const rows = resultsOfClass(cls);
+      for (const o of getSurgeryOptionsFromResults(rows)) {
+        assert.ok(rows.some((x) => surgKey(x) === o.surgVal), `${cls}: 選択肢 ${o.surgVal} に一致する行がない`);
+      }
+    }
+  });
+  test("getCondOptionsFromResults: 7-8桁目の条件が複数ある分類で選択肢が出る", () => {
+    const cls = first(Object.keys(D.pt), (c) => Object.keys(D.pt[c]).length >= 2);
+    const opts = getCondOptionsFromResults(resultsOfClass(cls));
+    assert.ok(opts && opts.length >= 2);
+    for (const o of opts) { assert.ok(D.pt[cls][o.condVal] === undefined ? o.condVal === "xx" : o.label.startsWith(D.pt[cls][o.condVal])); }
+    const plain = first(Object.keys(D.cls), (c) => !D.pt[c]);
+    assert.equal(getCondOptionsFromResults(resultsOfClass(plain)), null);
+  });
+  test("サジェスト選択肢: 出来高DPCも選択肢に残り「（出来高算定）」が付く", () => {
+    const cls = first(Object.keys(D.cls), (c) => { const rows = resultsOfClass(c); return rows.some((x) => x.isDekidaka) && rows.some((x) => !x.isDekidaka) && rows.some((x) => x.hasSurgBranch); });
+    const rows = resultsOfClass(cls);
+    const opts = getSurgeryOptionsFromResults(rows);
+    const dkOnly = new Set(rows.filter((x) => rows.filter((y) => y.surgVal === x.surgVal).every((y) => y.isDekidaka)).map((x) => x.surgVal));
+    for (const o of opts) assert.equal(o.label.endsWith("（出来高算定）"), dkOnly.has(o.rawVal), `${cls} ${o.rawVal}`);
   });
   test("処置等2の選択肢は分岐のあるDPCからのみ作られる", () => {
     const cls = first(Object.keys(D.cls), (c) => dpcCodesOf(c).some((code) => code[11] !== X) && dpcCodesOf(c).some((code) => code[11] === X));

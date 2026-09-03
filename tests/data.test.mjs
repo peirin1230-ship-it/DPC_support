@@ -164,6 +164,28 @@ describe("D.sv / D.pt", () => {
   });
 });
 
+describe("D.cv（変換テーブルの対応コード→桁の縮約）", () => {
+  test("写像先の桁は実在するDPCの桁で、対応コードは定義テーブルに存在する", () => {
+    assert.ok(Object.keys(D.cv).length > 0, "縮約が1件も無い（令和8年度は MDC05 に存在するはず）");
+    for (const [cls, bySurg] of Object.entries(D.cv)) {
+      assert.ok(D.cls[cls], cls);
+      for (const [sv, byType] of Object.entries(bySurg)) {
+        const codes = D.dpc && Object.keys(D.dpc).filter((c) => c.startsWith(cls) && c.slice(8, 10) === sv);
+        assert.ok(codes.length > 0, `${cls}/${sv}: DPCなし`);
+        for (const [t, m] of Object.entries(byType)) {
+          const pos = t === "1" ? 10 : t === "2" ? 11 : 12;
+          const table = t === "1" ? D.p1 : t === "2" ? D.p2 : D.sd;
+          for (const [corr, digit] of Object.entries(m)) {
+            assert.notEqual(corr, digit);
+            assert.ok(codes.some((c) => c[pos] === digit), `${cls}/${sv}/${t}: 桁 ${digit} のDPCがない`);
+            assert.ok(table[cls] && table[cls][corr] !== undefined, `${cls}: 対応コード ${corr} が定義テーブルにない`);
+          }
+        }
+      }
+    }
+  });
+});
+
 describe("D.dk / D.dx / D.da / D.cc", () => {
   test("出来高算定コードは K/D コード形式", () => {
     assert.ok(Object.keys(D.dk).length > 0);

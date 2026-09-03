@@ -7,6 +7,8 @@ import { D } from "./data.js";
  *                手術区分(9-10桁目), 処置等1(11桁目), 処置等2(12桁目), 副傷病(13桁目),
  *                期間Ⅰ日数, 期間Ⅱ日数, 期間Ⅲ日数, 期間Ⅰ点数, 期間Ⅱ点数, 期間Ⅲ点数]
  * 手術区分〜副傷病はDPCコードの桁そのもので、"x"/"xx" は「その分岐が無い」ことを表す。
+ * 定義テーブル（D.p1/D.p2/D.sd）は電子点数表の「対応コード」でキー付けされ、変換テーブルで
+ * 複数の対応コードが同じ桁に縮約される分類は D.cv[cls][手術区分][種別][対応コード] = 桁 で表す。
  * ────────────────────────────────────────────────────────── */
 
 export const X = "x";
@@ -41,11 +43,69 @@ export function corrNum(v) {
 export function matchVal(actual, wanted) {
   return wanted === undefined || wanted === null || isNA(actual) || actual === wanted;
 }
-/** 手術リスト（"K1+K2" の組み合わせ要素を含む）にコードが含まれるか */
+/** 定義テーブルの対応コード → DPCコードの桁（変換テーブルの縮約を反映。写像が無ければそのまま） */
+export function corrToDigit(cls, sv, type, corr) {
+  if (corr === undefined || corr === null) return corr;
+  return D.cv?.[cls]?.[sv]?.[type]?.[corr] ?? corr;
+}
+/** リストにコードそのものが含まれるか（"K1+K2" の組み合わせは組み合わせとして選択された場合のみ一致） */
+export function slHasExact(list, code) {
+  return !!list && !!code && list.includes(code);
+}
+/** リストにコードが含まれるか（"K1+K2" の構成要素としての一致も含む。候補提示・ヒント用） */
 export function slHas(list, code) {
   if (!list || !code) return false;
   return list.some((e) => e === code || (e.includes("+") && e.split("+").includes(code)));
 }
+/** リスト中で code を構成要素に含む組み合わせ手術 */
+export function combosContaining(list, code) {
+  if (!list || !code) return [];
+  return list.filter((e) => e.includes("+") && e !== code && e.split("+").includes(code));
+}
+
+/* ── 通知に基づく特別扱い ── */
+// 保医発0321第6号 第2の3(8): 「手術」とは第10部に掲げる手術（手術等管理料及び輸血管理料を除く。）
+const NON_SURGERY_RE = /^K91[4-7]|^K920-2/;
+export function isNonSurgeryCode(k) { return !!k && NON_SURGERY_RE.test(normalize(k)); }
+export const NON_SURGERY_NOTE = "手術等管理料・輸血管理料は診断群分類上の「手術」に含まれないため、手術なし（99）として検索しています（保医発0321第6号 第2の3(8)）。";
+
+// 通知 第2の1(2): C97・T14.0〜T14.9 は選択せず主たる部位のICD-10を選択する。
+// コーディングテキスト p.22: T08・T10・T12（部位不明の損傷）は留意して使用する。
+export function icdWarning(code) {
+  const q = normalize(code || "").replace(/\$$/, "");
+  if (!q) return null;
+  if (q === "C97" || /^T14\d?$/.test(q)) {
+    return { level: "forbid", tag: "選択不可", text: `${q} は診断群分類区分の決定に用いないICD-10です。主たる部位のICD-10を選択してください（保医発0321第6号 第2の1(2)）。` };
+  }
+  if (/^T(08|10|12)\d?$/.test(q)) {
+    return { level: "caution", tag: "留意", text: `${q}（部位不明の損傷）は部位を明確にして他のICD-10を選択できないか確認してください（コーディングテキスト 留意コード）。` };
+  }
+  return null;
+}
+
+export const COEFFICIENT_NOTE = "表示の点数は診断群分類点数表の点数（医療機関別係数・加算・出来高部分を含まない）です。";
+export const SUBDIAG_NOTE = "定義副傷病は入院時併存症と入院後発症傷病の両方を含み、疑い病名は除きます（保医発0321第6号 第2の2(2)）。";
+
+// 重症度等・年齢等の判定時点と「不明」時の扱い（保医発0321第6号 第2の3）
+const SEV_NOTES = [
+  [/ＪＣＳ|JCS/, "ＪＣＳは入院時（入院後に発症した傷病が医療資源病名となる場合は発症時）で判断します（通知 第2の3(1)）。"],
+  [/膵炎|軽症|重症/, "重症度が判定できない「不明」の場合は「軽症」を選択します（通知 第2の3(12)）。"],
+  [/発症時期/, "発症時期は診断群分類区分の適用開始時を起点とし、適用開始後に発症した場合は「発症3日目以内」を選択します（通知 第2の3(14)）。"],
+  [/A-DROP|ＡＤＲＯＰ/i, "A-DROPスコアは入院時（入院中に発生した場合は発症時）の5項目（男性70歳以上・女性75歳以上／BUN 21mg/dL以上又は脱水／SpO2 90%以下／意識障害／収縮期血圧90mmHg以下）の合計数です（通知 第2の3(15)）。"],
+  [/Child|Ｃｈｉｌｄ/, "Child-Pugh分類は一入院期間で最も重症度が高い時点の状態で判定し、判定できない項目は1点として計上します（通知 第2の3(20)）。"],
+  [/年齢/, "年齢は診断群分類区分が適用される入院時の年齢です（通知 第2の3(3)）。"],
+];
+export function severityNote(name) {
+  const n = String(name || "");
+  for (const [re, note] of SEV_NOTES) if (re.test(n)) return note;
+  return "";
+}
+const COND_NOTES = {
+  "120170": "妊娠週数は入院時の週数で、不明の場合等は「34週以上」を選択します（通知 第2の3(16)）。",
+  "120260": "分娩時出血量が不明の場合、又は入院周辺の分娩の有無が「その他」の場合は「2000ml未満」を選択します（通知 第2の3(19)）。",
+  "040080": "年齢は入院時の年齢。市中肺炎の区分と年齢の両方を満たす条件を選択します（通知 第2の3(3)(15)）。",
+};
+export function conditionNote(cls) { return COND_NOTES[cls] || ""; }
 
 /* ── 分類別DPCインデックス（遅延生成） ── */
 let _byCls = null;
@@ -145,7 +205,8 @@ export function getCondLabel(cls, dpc) {
 
 /* ── 点数計算 ── */
 /**
- * 入院日数 sd に対する包括点数。期間Ⅲを超える日数は overDays（出来高）として返す。
+ * 入院日数 sd に対する包括点数（医療機関別係数・加算は含まない）。
+ * 期間Ⅲを超える日数は overDays（出来高）として返す。
  * 返り値: {total, overDays, d3, segments:[{days,pts}×3]} / 計算不能なら null
  */
 export function calcTotal(days, pts, sd) {
@@ -162,7 +223,7 @@ export function calcTotal(days, pts, sd) {
 }
 export function totalVal(days, pts, sd) { const r = calcTotal(days, pts, sd); return r ? r.total : 0; }
 
-/* ── 出来高算定手術 ── */
+/* ── 出来高算定手術・薬剤 ── */
 export function isDekidakaOp(kCode) {
   if (!kCode) return false;
   const parts = kCode.includes("+") ? kCode.split("+") : [kCode];
@@ -177,6 +238,17 @@ export function isDekidakaOp(kCode) {
 export function getDekidakaList() {
   const codes = Object.entries(D.dk || {}).map(([code, name]) => ({ code, name, kind: code.startsWith("K") ? "手術" : code.startsWith("D") ? "検査" : "その他" }));
   return { codes, drugs: D.dx?.dr || [], patients: D.dx?.pt || [] };
+}
+let _dkDrugNames = null;
+/**
+ * 処置等2の薬剤コードが「厚生労働大臣が定める出来高算定薬剤」（D.dx.dr）の一般名と一致するか。
+ * 一致しても効能・用法等の条件付きのため「可能性」として表示する。
+ */
+export function isDekidakaDrug(code) {
+  if (!_dkDrugNames) _dkDrugNames = (D.dx?.dr || []).map((t) => normalize(t));
+  const name = normalize(D.cn?.[code] || "");
+  if (!name || !/^\d{4}$/.test(code)) return false;
+  return _dkDrugNames.some((t) => t.startsWith(name));
 }
 
 /* ── 結果オブジェクト ── */
@@ -193,6 +265,7 @@ function toResult(code, info) {
     subdiagName: isNA(sdv) ? "-" : getLabel(cls, "s", sdv, sv),
     severity: getSevInfo(cls, code),
     condLabel: getCondLabel(cls, code),
+    pos78: code.slice(6, 8),
     days: [info[7], info[8], info[9]], points: [info[10], info[11], info[12]],
     isDekidaka: info[2] === "0" || info[2] === 0,
     ccpm: D.cc?.[code] || "",
@@ -206,95 +279,128 @@ export function buildResultFromCode(code) {
 export function resultsOfClass(cls) {
   return dpcCodesOf(cls).map((code) => toResult(code, D.dpc[code]));
 }
+/** サジェストの手術ステップで用いる選択キー（選択肢と行で同じ関数を使う） */
+export const NO_SURG_BRANCH_LABEL = "手術による分岐なし";
+export function surgKey(r) {
+  return `${r.surgVal}::${isNA(r.surgVal) ? NO_SURG_BRANCH_LABEL : r.surgeryName || "なし"}`;
+}
+
+/* ── 処置等・薬剤の制約（分類ごとの対応コード） ── */
+/**
+ * 処置等コード・薬剤コードから、分類ごとの処置等1/2の対応コード制約を求める。
+ * 同じ分岐に複数の該当があれば相関値の大きい方（ツリー図で下＝高優先）を採る。
+ * 返り値: { cons: Map(cls → {p1?, p2?}), procFound: Set, drugFound: Set }
+ */
+export function procConstraints({ procAnyCode, drugCode } = {}, clsFilter) {
+  const cons = new Map(), procFound = new Set(), drugFound = new Set();
+  const add = (table, key, code, found) => {
+    for (const [c, grp] of Object.entries(table)) {
+      if (clsFilter && !clsFilter(c)) continue;
+      let best = null;
+      for (const [corr, codes] of Object.entries(grp)) {
+        if (!slHasExact(codes, code)) continue;
+        if (best === null || corrNum(corr) > corrNum(best)) best = corr;
+      }
+      if (best === null) continue;
+      let e = cons.get(c);
+      if (!e) cons.set(c, (e = {}));
+      if (e[key] === undefined || corrNum(best) > corrNum(e[key])) e[key] = best;
+      found.add(c);
+    }
+  };
+  if (procAnyCode) { add(D.p1, "p1", procAnyCode, procFound); add(D.p2, "p2", procAnyCode, procFound); }
+  if (drugCode) add(D.p2, "p2", drugCode, drugFound);
+  return { cons, procFound, drugFound };
+}
+/** DPC行が処置等制約（対応コード）に合うか。分岐なし(x)と縮約を考慮 */
+function matchProc(cls, info, co) {
+  if (!co) return true;
+  if (!matchVal(info[4], corrToDigit(cls, info[3], "1", co.p1))) return false;
+  if (!matchVal(info[5], corrToDigit(cls, info[3], "2", co.p2))) return false;
+  return true;
+}
 
 /* ── 検索 ── */
 /**
  * 条件に合致するDPCを返す。
  *  - icdCode: 分類を特定（M!!!!ルール含む）
- *  - surgeryCode: 手術区分を特定。ICD指定時に定義テーブルにないKコードなら
- *    「その他の手術あり(97)」として扱い、結果に surgFallback=true を付ける
- *  - procAnyCode / drugCode: 処置等1・2の相関値を特定
+ *  - surgeryCode: 手術区分を特定。定義テーブルの完全一致のみ（"K1+K2" は組み合わせとして選択された場合）。
+ *    ICD指定時に定義テーブルにないKコードなら「その他の手術あり(97)」として扱い surgFallback=true、
+ *    そのKコードを構成要素に含む組み合わせ手術があれば comboHint に列挙する。
+ *    手術等管理料・輸血管理料は「手術なし(99)」として扱い surgExcluded=true。
+ *  - procAnyCode / drugCode: 処置等1・2の対応コードを特定（複数該当は高優先＝相関値大）。
+ *    指定していない側の分岐は制約しない（ドリルダウンで絞り込む）。
  */
 export function searchDPC({ icdCode, surgeryCode, procAnyCode, drugCode }) {
   if (!icdCode && !surgeryCode && !procAnyCode && !drugCode) return [];
   let targetCls = null;
   if (icdCode) { targetCls = findCls(icdCode); if (!targetCls.length) return []; }
-  const cons = {};
-  const get = (c) => cons[c] || (cons[c] = {});
-  const fallbackCls = new Set();
+  const inTarget = (c) => !targetCls || targetCls.includes(c);
+  const surgCons = new Map(); // cls → surg digit
+  const fallbackCls = new Set(), comboHints = new Map();
+  let surgExcluded = false;
 
   if (surgeryCode) {
-    if (surgeryCode === CODE_NO_SURGERY) {
-      for (const c of targetCls || Object.keys(D.cls)) get(c).surg = "99";
+    let code = surgeryCode;
+    if (isNonSurgeryCode(code)) { code = CODE_NO_SURGERY; surgExcluded = true; }
+    if (code === CODE_NO_SURGERY) {
+      for (const c of targetCls || Object.keys(D.cls)) surgCons.set(c, "99");
     } else {
       for (const [c, si] of Object.entries(D.si)) {
-        if (targetCls && !targetCls.includes(c)) continue;
+        if (!inTarget(c)) continue;
+        let picked = null;
         for (const [corr, idx] of Object.entries(si)) {
-          if (slHas(D.sl[idx], surgeryCode)) { get(c).surg = corr; break; }
+          if (!slHasExact(D.sl[idx], code)) continue;
+          // 同一分類内で複数区分に一致する場合は高優先（相関値の小さい定義手術＝ツリー図の下）を採る
+          if (picked === null || surgPriority(corr) > surgPriority(picked)) picked = corr;
         }
+        if (picked !== null) surgCons.set(c, picked);
+        const hints = Object.values(si).flatMap((idx) => combosContaining(D.sl[idx], code));
+        if (hints.length) comboHints.set(c, [...new Set(hints)]);
       }
       if (targetCls) {
         for (const c of targetCls) {
-          if (cons[c]?.surg !== undefined) continue;
+          if (surgCons.has(c)) continue;
           const svs = classSurgVals(c);
-          if (svs.has("xx")) get(c).surg = "xx"; // 手術による分岐なし
-          else if (svs.has("97")) { get(c).surg = "97"; fallbackCls.add(c); }
+          if (svs.has("xx")) surgCons.set(c, "xx"); // 手術による分岐なし
+          else if (svs.has("97")) { surgCons.set(c, "97"); fallbackCls.add(c); }
         }
       }
     }
   }
 
-  const procFound = new Set(), drugFound = new Set();
-  const applyProc = (table, key, code, found) => {
-    for (const [c, grp] of Object.entries(table)) {
-      if (targetCls && !targetCls.includes(c)) continue;
-      if (surgeryCode && !cons[c]) continue;
-      for (const [corr, codes] of Object.entries(grp)) {
-        if (slHas(codes, code)) {
-          const co = get(c);
-          if (co[key] === undefined) co[key] = corr;
-          found.add(c);
-          break;
-        }
-      }
-    }
-  };
-  if (procAnyCode) { applyProc(D.p1, "p1", procAnyCode, procFound); applyProc(D.p2, "p2", procAnyCode, procFound); }
-  if (drugCode) applyProc(D.p2, "p2", drugCode, drugFound);
+  const { cons: pcons, procFound, drugFound } = procConstraints({ procAnyCode, drugCode }, (c) => inTarget(c) && (!surgeryCode || surgCons.has(c)));
 
-  if (surgeryCode || procAnyCode || drugCode) {
-    for (const c of targetCls || Object.keys(cons)) {
-      const co = get(c);
-      if (procAnyCode && !procFound.has(c)) { delete cons[c]; continue; }
-      if (drugCode && !drugFound.has(c)) { delete cons[c]; continue; }
-      if (procAnyCode || drugCode) {
-        if (co.p1 === undefined) co.p1 = "0";
-        if (co.p2 === undefined) co.p2 = "0";
-      }
-    }
-  }
-
-  const sCls = targetCls || Object.keys(cons);
+  const candidates = targetCls || [...new Set([...surgCons.keys(), ...pcons.keys()])];
   const results = [];
-  for (const cls of sCls) {
-    const co = cons[cls] || {};
-    if (surgeryCode && surgeryCode !== CODE_NO_SURGERY && co.surg === undefined) continue;
-    if ((procAnyCode || drugCode) && !cons[cls]) continue;
+  for (const cls of candidates) {
+    if (surgeryCode && !surgCons.has(cls)) continue;
+    if (procAnyCode && !procFound.has(cls)) continue;
+    if (drugCode && !drugFound.has(cls)) continue;
+    const surg = surgCons.get(cls);
+    const co = pcons.get(cls);
     for (const code of dpcCodesOf(cls)) {
       const info = D.dpc[code];
-      if (!matchVal(info[3], co.surg)) continue;
-      if (!matchVal(info[4], co.p1)) continue;
-      if (!matchVal(info[5], co.p2)) continue;
+      if (!matchVal(info[3], surg)) continue;
+      if (!matchProc(cls, info, co)) continue;
       const r = toResult(code, info);
       if (fallbackCls.has(cls)) r.surgFallback = true;
+      if (surgExcluded) r.surgExcluded = true;
+      if (comboHints.has(cls)) r.comboHint = comboHints.get(cls);
       results.push(r);
     }
   }
   results.sort((a, b) => (b.points[0] || 0) - (a.points[0] || 0));
   return results;
 }
+/** 手術区分の優先度: 定義手術は番号が小さいほどツリー図の下＝高優先。97・99 は最下位 */
+function surgPriority(sv) {
+  if (sv === "99") return -2;
+  if (sv === "97") return -1;
+  const n = parseInt(sv, 10);
+  return Number.isNaN(n) ? -3 : 100 - n;
+}
 
-/** 病名・ICD-10コード・分類名（例: 脳腫瘍）で検索。分類名の一致は先頭に「分類」タグ付きで返す */
 export function searchDisease(q) {
   if (!q || q.length < 1) return [];
   const qn = normalize(q);
@@ -310,7 +416,8 @@ export function searchDisease(q) {
     const isP = c.endsWith("$");
     const base = isP ? cn.slice(0, -1) : cn;
     if (n.includes(q) || normalize(n).includes(qn) || cn.includes(qn) || (isP && qn.startsWith(base))) {
-      r.push({ code: c, name: cleanName(n) });
+      const w = icdWarning(c);
+      r.push({ code: c, name: cleanName(n), ...(w ? { tag: w.tag, warn: w.level } : {}) });
       if (r.length >= 30) break;
     }
   }
@@ -318,8 +425,9 @@ export function searchDisease(q) {
 }
 
 /**
- * 手術Kコード・名称で検索。定義テーブルの手術に加えて、
- * 出来高算定手術等コード（D.dk）と、定義テーブルにないKコードそのもの（その他の手術あり扱い）も候補に出す。
+ * 手術Kコード・名称で検索。定義テーブルの手術（組み合わせ "K1+K2" は1件として）に加えて、
+ * 出来高算定手術等コード（D.dk）、手術等管理料・輸血管理料（手術なし扱い）、
+ * 定義テーブルにないKコードそのもの（その他の手術あり扱い）も候補に出す。
  */
 export function searchSurg(q) {
   if (!q || q.length < 1) return [];
@@ -332,7 +440,7 @@ export function searchSurg(q) {
         const parts = kc.split("+");
         const hit = parts.some((p) => dh(normalize(p)).includes(qd)) || normalize(D.cn[kc] || "").includes(qn);
         if (!hit) continue;
-        r.push({ code: kc, name: D.cn[kc] || "", dk: isDekidakaOp(kc) });
+        r.push({ code: kc, name: D.cn[kc] || "", dk: isDekidakaOp(kc), ...(kc.includes("+") ? { tag: "組合せ" } : {}) });
         seen.add(kc);
         if (r.length >= 20) return r;
       }
@@ -346,9 +454,9 @@ export function searchSurg(q) {
       if (r.length >= 20) return r;
     }
   }
-  // Kコード形式の入力で完全一致がなければ、そのコードを「定義テーブルにない手術」として選べるようにする
   if (/^K\d{3}[\dA-Z\-ｲ-ﾝ]*$/.test(qn) && !r.some((x) => x.code === qn)) {
-    r.push({ code: qn, name: "定義テーブルにないKコード（その他の手術ありとして検索）", tag: "97", free: true });
+    if (isNonSurgeryCode(qn)) r.push({ code: qn, name: "手術等管理料・輸血管理料（手術なしとして検索）", tag: "99", free: true });
+    else r.push({ code: qn, name: "定義テーブルにないKコード（その他の手術ありとして検索）", tag: "97", free: true });
   }
   return r;
 }
@@ -362,8 +470,9 @@ export function searchProc(q) {
       for (const codes of Object.values(grp)) {
         for (const c of codes) {
           if (seen.has(c)) continue;
-          if (dh(normalize(c)).includes(qd) || normalize(D.cn[c] || "").includes(qn)) {
-            r.push({ code: c, name: D.cn[c] || "", tag });
+          const parts = c.split("+");
+          if (parts.some((p) => dh(normalize(p)).includes(qd)) || normalize(D.cn[c] || "").includes(qn)) {
+            r.push({ code: c, name: D.cn[c] || "", tag: c.includes("+") ? `${tag}・組合せ` : tag });
             seen.add(c);
             if (r.length >= 30) return true;
           }
@@ -392,7 +501,7 @@ export function searchDrug(q) {
         if (!m) for (const a of al) { if (normalize(a).includes(qn)) { m = true; ma = a; break; } }
         if (!m) continue;
         const dn = ma ? `${n}（${ma}）` : al.length > 0 ? `${n}（${al[0]}）` : n;
-        r.push({ code: c, name: dn });
+        r.push({ code: c, name: dn, ...(isDekidakaDrug(c) ? { tag: "出来高薬剤の可能性", warn: "caution" } : {}) });
         seen.add(c);
         if (r.length >= 20) return r;
       }
@@ -423,35 +532,29 @@ export function getNoResultHints({ surgeryCode, procAnyCode, drugCode }) {
   return { code, name: D.cn[code] || "", evalItems };
 }
 
+/** 分類内で code が属する対応コード（複数該当は高優先＝相関値大） */
 export function findCorrValForCls(cls, type, code) {
   const map = type === "p1" ? D.p1[cls] : D.p2[cls];
   if (!map) return null;
-  for (const [cv, codes] of Object.entries(map)) if (slHas(codes, code)) return cv;
-  return null;
+  let best = null;
+  for (const [cv, codes] of Object.entries(map)) if (slHasExact(codes, code) && (best === null || corrNum(cv) > corrNum(best))) best = cv;
+  return best;
 }
 
 /* ── 一覧検索: 全分岐展開 ── */
 export function getExpandedResults(baseResults, searchParams) {
   const pairs = new Set();
-  const p1Cons = new Map(), p2Cons = new Map();
+  for (const r of baseResults) pairs.add(`${r.cls}_${r.surgVal}`);
   const hasProc = !!(searchParams && (searchParams.procAnyCode || searchParams.drugCode));
-  for (const r of baseResults) {
-    pairs.add(`${r.cls}_${r.surgVal}`);
-    if (hasProc) {
-      if (!p1Cons.has(r.cls) && !isNA(r.p1Val)) p1Cons.set(r.cls, r.p1Val);
-      if (!p2Cons.has(r.cls) && !isNA(r.p2Val)) p2Cons.set(r.cls, r.p2Val);
-    }
-  }
-  const expanded = [];
   const clsSet = new Set([...pairs].map((p) => p.slice(0, 6)));
+  const pcons = hasProc ? procConstraints(searchParams, (c) => clsSet.has(c)).cons : null;
+  const expanded = [];
   for (const cls of clsSet) {
+    const co = pcons ? pcons.get(cls) : null;
     for (const code of dpcCodesOf(cls)) {
       const info = D.dpc[code];
       if (!pairs.has(`${cls}_${info[3]}`)) continue;
-      if (hasProc) {
-        if (!matchVal(info[4], p1Cons.get(cls))) continue;
-        if (!matchVal(info[5], p2Cons.get(cls))) continue;
-      }
+      if (!matchProc(cls, info, co)) continue;
       expanded.push(toResult(code, info));
     }
   }
@@ -461,26 +564,20 @@ export function getExpandedResults(baseResults, searchParams) {
 /* ── サジェスト: 候補展開 ── */
 export function expandForSuggest(baseResults, searchParams) {
   const hasProc = !!(searchParams && (searchParams.procAnyCode || searchParams.drugCode));
-  const p1Cons = new Map(), p2Cons = new Map();
   const clsMax = new Map();
   for (const r of baseResults) {
     const sc = corrNum(r.surgVal);
     const ex = clsMax.get(r.cls);
     if (ex === undefined || sc > ex) clsMax.set(r.cls, sc);
-    if (hasProc) {
-      if (!p1Cons.has(r.cls) && !isNA(r.p1Val)) p1Cons.set(r.cls, r.p1Val);
-      if (!p2Cons.has(r.cls) && !isNA(r.p2Val)) p2Cons.set(r.cls, r.p2Val);
-    }
   }
+  const pcons = hasProc ? procConstraints(searchParams, (c) => clsMax.has(c)).cons : null;
   const expanded = [];
   for (const [cls, maxSurg] of clsMax) {
+    const co = pcons ? pcons.get(cls) : null;
     for (const code of dpcCodesOf(cls)) {
       const info = D.dpc[code];
       if (corrNum(info[3]) > maxSurg) continue;
-      if (hasProc) {
-        if (!matchVal(info[4], p1Cons.get(cls))) continue;
-        if (!matchVal(info[5], p2Cons.get(cls))) continue;
-      }
+      if (!matchProc(cls, info, co)) continue;
       expanded.push(toResult(code, info));
     }
   }
@@ -492,11 +589,11 @@ export function filterDrillDown(expandedDPCs, drillP1, drillP2) {
   return expandedDPCs.filter((r) => {
     if (drillP1) {
       const cv = findCorrValForCls(r.cls, "p1", drillP1);
-      if (cv === null || !matchVal(r.p1Val, cv)) return false;
+      if (cv === null || !matchVal(r.p1Val, corrToDigit(r.cls, r.surgVal, "1", cv))) return false;
     }
     if (drillP2) {
       const cv = findCorrValForCls(r.cls, "p2", drillP2);
-      if (cv === null || !matchVal(r.p2Val, cv)) return false;
+      if (cv === null || !matchVal(r.p2Val, corrToDigit(r.cls, r.surgVal, "2", cv))) return false;
     }
     return true;
   });
@@ -517,11 +614,13 @@ export function getBranchOptions(expandedDPCs, drillP1, drillP2) {
     const grp = table[cls] || {};
     const minCv = drill ? corrNum(findCorrValForCls(cls, type, drill) || "0") : 0;
     const valKey = type === "p1" ? "p1Val" : "p2Val";
+    const t = type === "p1" ? "1" : "2";
     for (const [cv, codes] of Object.entries(grp)) {
       if (cv === "0" || corrNum(cv) <= minCv) continue;
-      if (!expandedDPCs.some((x) => x.cls === cls && x.surgVal === surgVal && x[valKey] === cv)) continue;
+      const digit = corrToDigit(cls, surgVal, t, cv);
+      if (!expandedDPCs.some((x) => x.cls === cls && x.surgVal === surgVal && x[valKey] === digit)) continue;
       for (const code of codes) {
-        if (!det.has(code)) det.set(code, { code, name: D.cn[code] || "", drugAlias: withAlias ? D.da?.[code]?.[0] || "" : "", entries: new Map() });
+        if (!det.has(code)) det.set(code, { code, name: D.cn[code] || "", drugAlias: withAlias ? D.da?.[code]?.[0] || "" : "", dkDrug: withAlias && isDekidakaDrug(code), entries: new Map() });
         const d = det.get(code);
         const ex = d.entries.get(clsKey);
         if (!ex || corrNum(cv) > corrNum(ex)) d.entries.set(clsKey, cv);
@@ -536,7 +635,7 @@ export function getBranchOptions(expandedDPCs, drillP1, drillP2) {
   }
   const finish = (det) => [...det.values()].map((d) => {
     const maxCv = [...d.entries.values()].reduce((a, b) => (corrNum(a) >= corrNum(b) ? a : b));
-    return { code: d.code, name: d.name, drugAlias: d.drugAlias, maxCorrVal: maxCv };
+    return { code: d.code, name: d.name, drugAlias: d.drugAlias, dkDrug: d.dkDrug, maxCorrVal: maxCv };
   }).sort((a, b) => corrNum(b.maxCorrVal) - corrNum(a.maxCorrVal));
   return { p1Items: finish(p1Det), p2Items: finish(p2Det) };
 }
@@ -567,21 +666,39 @@ export function getSimilarClassifications(cls) {
 }
 
 /* ── サジェストモード用 ── */
-export const NO_SURG_BRANCH_LABEL = "手術による分岐なし";
+const DK_SUFFIX = "（出来高算定）";
+
+/** 7-8桁目（病態等分類・年齢・JCS等）の条件ステップ。条件が1種類以下なら null */
+export function getCondOptionsFromResults(rows) {
+  const groups = new Map();
+  for (const r of rows) {
+    const key = r.pos78 || r.code.slice(6, 8);
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { condVal: key, rawVal: key, label: key === "xx" ? "条件なし" : r.condLabel || key, maxPts: 0, count: 0, dk: true, clsNames: new Set() }));
+    g.count++;
+    if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    if (!r.isDekidaka) g.dk = false;
+    g.clsNames.add(D.cls[r.cls] || r.cls);
+  }
+  if (groups.size <= 1) return null;
+  return [...groups.values()].map((g) => ({ ...g, label: g.dk ? g.label + DK_SUFFIX : g.label, clsNames: [...g.clsNames] }))
+    .sort((a, b) => (a.rawVal === "xx" ? 1 : b.rawVal === "xx" ? -1 : a.rawVal.localeCompare(b.rawVal)));
+}
 
 export function getSurgeryOptionsFromResults(expandedDPCs) {
-  const groups = new Map(), clsSeen = new Map();
+  const groups = new Map(), pairSeen = new Map();
   for (const r of expandedDPCs) {
-    if (r.isDekidaka) continue;
+    const gKey = surgKey(r);
     const label = isNA(r.surgVal) ? NO_SURG_BRANCH_LABEL : r.surgeryName || "なし";
-    const gKey = `${r.surgVal}::${label}`;
-    const g = groups.get(gKey);
-    if (!g) { groups.set(gKey, { surgVal: gKey, rawVal: r.surgVal, label, maxPts: r.points[0] || 0 }); clsSeen.set(gKey, new Set([r.cls])); }
-    else { if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0; clsSeen.get(gKey).add(r.cls); }
+    let g = groups.get(gKey);
+    if (!g) { groups.set(gKey, (g = { surgVal: gKey, rawVal: r.surgVal, label, maxPts: 0, dk: true })); pairSeen.set(gKey, new Set()); }
+    if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    if (!r.isDekidaka) g.dk = false;
+    pairSeen.get(gKey).add(r.cls);
   }
   for (const [gKey, g] of groups) {
     const allCodes = new Set();
-    const clsSet = clsSeen.get(gKey);
+    const clsSet = pairSeen.get(gKey);
     if (!isNA(g.rawVal)) {
       for (const cls of clsSet) {
         const idx = D.si?.[cls]?.[g.rawVal];
@@ -591,6 +708,7 @@ export function getSurgeryOptionsFromResults(expandedDPCs) {
     }
     g.codes = [...allCodes].map((c) => ({ code: c, name: D.cn[c] || "" }));
     g.clsNames = [...clsSet].map((c) => D.cls[c] || c);
+    if (g.dk) g.label += DK_SUFFIX;
   }
   return [...groups.values()].sort((a, b) => corrNum(a.rawVal) - corrNum(b.rawVal));
 }
@@ -599,25 +717,30 @@ function procOptions(filteredDPCs, type) {
   const valKey = type === "p1" ? "p1Val" : "p2Val";
   const nameKey = type === "p1" ? "proc1Name" : "proc2Name";
   const brKey = type === "p1" ? "hasP1Branch" : "hasP2Branch";
+  const t = type === "p1" ? "1" : "2";
   const table = type === "p1" ? D.p1 : D.p2;
   if (!filteredDPCs.some((r) => r[brKey])) return null;
-  const groups = new Map(), clsSeen = new Map();
+  const groups = new Map(), pairSeen = new Map();
   for (const r of filteredDPCs) {
-    if (r.isDekidaka || !r[brKey]) continue;
+    if (!r[brKey]) continue;
     const gKey = `${r[valKey]}::${r[nameKey] || "なし"}`;
-    const g = groups.get(gKey);
-    if (!g) { groups.set(gKey, { [valKey]: gKey, rawVal: r[valKey], label: r[nameKey] || "なし", maxPts: r.points[0] || 0 }); clsSeen.set(gKey, new Set([r.cls])); }
-    else { if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0; clsSeen.get(gKey).add(r.cls); }
+    let g = groups.get(gKey);
+    if (!g) { groups.set(gKey, (g = { [valKey]: gKey, rawVal: r[valKey], label: r[nameKey] || "なし", maxPts: 0, dk: true })); pairSeen.set(gKey, new Map()); }
+    if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    if (!r.isDekidaka) g.dk = false;
+    pairSeen.get(gKey).set(`${r.cls}|${r.surgVal}`, { cls: r.cls, sv: r.surgVal });
   }
   for (const [gKey, g] of groups) {
-    const allCodes = new Set();
-    const clsSet = clsSeen.get(gKey);
-    for (const cls of clsSet) {
-      const codes = table?.[cls]?.[g.rawVal];
-      if (codes) codes.forEach((c) => allCodes.add(c));
+    const allCodes = new Set(), clsSet = new Set();
+    for (const { cls, sv } of pairSeen.get(gKey).values()) {
+      clsSet.add(cls);
+      const grp = table?.[cls] || {};
+      // この桁に写像される対応コードすべてのコードを集める（縮約を考慮）
+      for (const [cv, codes] of Object.entries(grp)) if (corrToDigit(cls, sv, t, cv) === g.rawVal) codes.forEach((c) => allCodes.add(c));
     }
-    g.codes = [...allCodes].map((c) => ({ code: c, name: (type === "p2" && D.da?.[c]?.[0]) || D.cn[c] || "" }));
+    g.codes = [...allCodes].map((c) => ({ code: c, name: (type === "p2" && D.da?.[c]?.[0]) || D.cn[c] || "", dkDrug: type === "p2" && isDekidakaDrug(c) }));
     g.clsNames = [...clsSet].map((c) => D.cls[c] || c);
+    if (g.dk) g.label += DK_SUFFIX;
   }
   return [...groups.values()].sort((a, b) => {
     if (a.rawVal === "0") return 1;
@@ -632,13 +755,13 @@ export function getSubdiagOptionsFromResults(filteredDPCs) {
   if (!filteredDPCs.some((r) => r.hasSdBranch)) return null;
   const groups = new Map();
   for (const r of filteredDPCs) {
-    if (r.isDekidaka || !r.hasSdBranch) continue;
-    const g = groups.get(r.sdVal);
-    if (!g) {
-      groups.set(r.sdVal, { sdVal: r.sdVal, label: r.subdiagName || "なし", maxPts: r.points[0] || 0, icds: getSubdiagICDs(r.cls, r.sdVal, r.surgVal) });
-    } else if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    if (!r.hasSdBranch) continue;
+    let g = groups.get(r.sdVal);
+    if (!g) groups.set(r.sdVal, (g = { sdVal: r.sdVal, label: r.subdiagName || "なし", maxPts: 0, dk: true, icds: getSubdiagICDs(r.cls, r.sdVal, r.surgVal) }));
+    if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    if (!r.isDekidaka) g.dk = false;
   }
-  return [...groups.values()].sort((a, b) => {
+  return [...groups.values()].map((g) => ({ ...g, label: g.dk ? g.label + DK_SUFFIX : g.label })).sort((a, b) => {
     if (a.sdVal === "0") return 1;
     if (b.sdVal === "0") return -1;
     return corrNum(b.sdVal) - corrNum(a.sdVal);
@@ -649,13 +772,14 @@ export function getSeverityOptionsFromResults(filteredDPCs) {
   if (!filteredDPCs.some((r) => r.severity)) return null;
   const groups = new Map();
   for (const r of filteredDPCs) {
-    if (r.isDekidaka || !r.severity) continue;
+    if (!r.severity) continue;
     const key = r.severity.value;
-    const g = groups.get(key);
-    if (!g) groups.set(key, { sevVal: key, name: r.severity.name, label: r.severity.label, maxPts: r.points[0] || 0 });
-    else if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    let g = groups.get(key);
+    if (!g) groups.set(key, (g = { sevVal: key, name: r.severity.name, label: r.severity.label, maxPts: 0, dk: true }));
+    if ((r.points[0] || 0) > g.maxPts) g.maxPts = r.points[0] || 0;
+    if (!r.isDekidaka) g.dk = false;
   }
-  return [...groups.values()].sort((a, b) => (parseInt(a.sevVal) || 0) - (parseInt(b.sevVal) || 0));
+  return [...groups.values()].map((g) => ({ ...g, label: g.dk ? g.label + DK_SUFFIX : g.label })).sort((a, b) => (parseInt(a.sevVal) || 0) - (parseInt(b.sevVal) || 0));
 }
 
 export function getIcdCandidates(dpcResults) {

@@ -286,7 +286,7 @@ console.log(`  除外: 抹消 ${rowStats.deleted} 行, 失効 ${rowStats.expired
 const D = {
   meta: {}, dpc: {}, cls: {}, lb: {}, br: {}, p1: {}, p2: {}, pc: {},
   si: {}, sl: [], icd: {}, icn: {}, sd: {}, sv: {}, dk: {}, dx: { dr: [], pt: [] },
-  cn: {}, da: {}, pt: {}, cc: {},
+  cn: {}, da: {}, pt: {}, cc: {}, cv: {},
 };
 const warnings = [];
 const warn = (msg) => warnings.push(msg);
@@ -434,17 +434,36 @@ for (const row of S.sd) {
 }
 console.log(`  → D.sd: ${Object.keys(D.sd).length} 件`);
 
-// ── 12）変換テーブル → 包括フラグ ──
+// ── 12）変換テーブル → 包括フラグ, D.cv（対応コード→DPC桁の写像） ──
+// 変換テーブルは「診断群分類を決定するために使用する」正本。同一DPCコードに複数の対応コードが
+// 写像される分類（例: 050050 手術02 の処置等1 = 0/1/2 → 桁0「なし、１,２あり」）があるため、
+// 対応コード ≠ 桁 となる組み合わせを D.cv[cls][手術区分][種別][対応コード] = 桁 として保持する。
 console.log("変換テーブル読み込み中...");
 const convDek = new Map(); // code → "0"/"1"
+const CV_COLS = [["1", 15, 10], ["2", 16, 11], ["s", 17, 12]]; // [種別, 変換テーブル列, DPCコード桁位置]
+let cvPairs = 0;
 for (const row of S.conv) {
   const code = str(row[1]);
   if (code.length !== 14) continue;
   const dek = str(row[2]);
   if (!convDek.has(code)) convDek.set(code, dek === "0" ? "0" : "1");
   else if (convDek.get(code) !== (dek === "0" ? "0" : "1")) warn(`変換テーブル: 包括フラグが行間で不一致 ${code}`);
+  const cls = code.slice(0, 6), surg = code.slice(8, 10);
+  const surgCol = str(row[14]);
+  if (surgCol && surgCol !== "a" && surg !== "xx" && surgCol !== surg) warn(`変換テーブル: 手術の対応コード ${surgCol} がDPC桁 ${surg} と異なります ${code}`);
+  for (const [type, col, pos] of CV_COLS) {
+    const corr = str(row[col]);
+    const digit = code[pos];
+    if (corr === "" || corr === "a" || digit === X || corr === digit) continue;
+    if (!D.cv[cls]) D.cv[cls] = {};
+    if (!D.cv[cls][surg]) D.cv[cls][surg] = {};
+    if (!D.cv[cls][surg][type]) D.cv[cls][surg][type] = {};
+    const prev = D.cv[cls][surg][type][corr];
+    if (prev && prev !== digit) warn(`変換テーブル: 対応コード ${corr} が複数の桁 (${prev}/${digit}) に写像 ${code}`);
+    if (!prev) { D.cv[cls][surg][type][corr] = digit; cvPairs++; }
+  }
 }
-console.log(`  → ${convDek.size} DPCコード`);
+console.log(`  → ${convDek.size} DPCコード, D.cv: ${Object.keys(D.cv).length} 分類 / 縮約 ${cvPairs} 組`);
 
 // ── 11）診断群分類点数表 → D.dpc, D.lb, D.br（＋条件・重症度ラベルの元） ──
 console.log("D.dpc, D.lb, D.br 生成中（点数表）...");

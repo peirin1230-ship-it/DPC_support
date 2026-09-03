@@ -1,5 +1,5 @@
 import { M } from "../styles";
-import { calcTotal } from "../utils";
+import { calcTotal, COEFFICIENT_NOTE } from "../utils";
 import { buildStepPath } from "./SimChart";
 import useModal from "../useModal";
 
@@ -217,7 +217,7 @@ export default function CompareModal({items,onClose,sd,isMobile}){
 
         <div style={{overflowX:isMobile?"auto":"visible",WebkitOverflowScrolling:"touch"}}>
         <table style={{width:"100%",borderCollapse:"collapse",fontSize:isMobile?12:13,minWidth:isMobile?480:"auto"}}>
-          <caption style={{textAlign:"left",fontSize:12,color:"#737373",padding:"0 0 6px",fontWeight:600}}>DPC比較表{sd?`（${sd}日入院）`:""}</caption>
+          <caption style={{textAlign:"left",fontSize:12,color:"#737373",padding:"0 0 6px",fontWeight:600}}>DPC比較表{sd?`（${sd}日入院）`:""}<span style={{fontWeight:400,color:"#8B8B8B",marginLeft:8,fontSize:10}}>{COEFFICIENT_NOTE}</span></caption>
           <thead>
             <tr>
               <th scope="col" style={{padding:"6px 10px",background:"#FAFAFA",color:"#737373",fontWeight:600,borderBottom:"1px solid #E0E0E0",fontSize:12,whiteSpace:"nowrap",textAlign:"left"}}>DPC</th>
